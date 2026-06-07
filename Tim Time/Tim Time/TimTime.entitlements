@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- App Sandbox intentionally OFF so Sparkle 2 can update the .app
+         bundle in place without an XPC service. Distributed outside the
+         Mac App Store; hardened runtime + notarization carry the trust. -->
+    <key>com.apple.security.app-sandbox</key>
+    <false/>
+
+    <!-- Sparkle fetches the appcast.xml + downloads the update .dmg. -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+</dict>
+</plist>

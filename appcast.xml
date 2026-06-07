@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"
+     xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"
+     xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>TimTime</title>
+    <link>https://timmayyyy.github.io/timtime/appcast.xml</link>
+    <description>Updates for TimTime — a minimalist macOS menu bar time tracker.</description>
+    <language>en</language>
+    <item>
+      <title>Version 1.0.0</title>
+      <pubDate>Sun, 07 Jun 2026 08:02:25 +0000</pubDate>
+      <sparkle:version>4</sparkle:version>
+      <sparkle:shortVersionString>1.0.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+        <h3>TimTime 1.0.0</h3>
+        <ul>
+          <li>First public release — minimalist menu bar time tracking.</li>
+          <li>Switch-to-start labels, daily/weekly breakdown, gentle work/break nudges.</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/timmayyyy/timtime/releases/download/v1.0.0/TimTime.dmg"
+        sparkle:edSignature="Z84/n/+kM0bOxnPePkAXMzzM/1pIc8obH1F1KzzZEhlCmhsxo0GBNM0DMT5/7VEf7eXQrSUNPrK6n/fNzz8QCw=="
+        length="1623668"
+        type="application/octet-stream" />
+    </item>
+  </channel>
+</rss>

@@ -1,0 +1,12 @@
+# Build output (also contains signing logs with the Apple ID email — keep out of git)
+build/
+DerivedData/
+*.xcarchive
+
+# Xcode user state
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+
+# macOS
+.DS_Store

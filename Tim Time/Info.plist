@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Sparkle keys. These MUST live in a real Info.plist: Xcode's
+         INFOPLIST_KEY_* build settings only emit Apple-defined keys and
+         silently drop custom (third-party) ones like SU*. GENERATE_INFOPLIST_FILE
+         stays YES; the build system merges its generated keys on top of this base. -->
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUFeedURL</key>
+    <string>https://timmayyyy.github.io/timtime/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>D+jHFIBUlHuXqj8evDoIN7VEkZ1u9VEGXU84Y5p/4fg=</string>
+</dict>
+</plist>
