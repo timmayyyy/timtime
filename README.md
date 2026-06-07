@@ -2,7 +2,7 @@
 
 A minimalist macOS **menu bar time tracker**. Type what you're working on and it tracks it — with gentle nudges to take breaks. SwiftUI, signed + notarized, auto-updating.
 
-![TimTime in the menu bar](timtime-menubar-mockup.webp)
+![TimTime — today's tracking with live timer, focus score, and timeline](screenshots/today.png)
 
 ## Download
 
@@ -18,6 +18,12 @@ Open the DMG and drag **TimTime** to Applications. It lives in your menu bar (no
 - **Gentle nudges** — a deterministic 15 / 15 / 45 cycle: two quick "still on it?" checks, then a breath/break prompt
 - **Local & append-only** — your data never leaves your Mac (`~/Library/Application Support/TimTime/`)
 - **Auto-updates** via [Sparkle](https://sparkle-project.org)
+
+## Screenshots
+
+| This week | Any range |
+|---|---|
+| ![Weekly view — per-day bars and per-label totals](screenshots/week.png) | ![Range view — any span, totaled per day](screenshots/range.png) |
 
 ## Build from source
 

@@ -93,12 +93,15 @@ final class PromptPanel {
 
     func showBreath(
         timeSinceLastBreak: TimeInterval?,
+        currentLabel: String? = nil,
         autoStartAt: Date? = nil,
         onResult: @escaping (Bool) -> Void,
+        onKeepWorking: @escaping () -> Void = {},
         onBreakStart: @escaping () -> Void
     ) {
         let content = BreathContentView(
             timeSinceLastBreak: timeSinceLastBreak,
+            currentLabel: currentLabel,
             autoStartAt: autoStartAt,
             onDone: { [weak self] in
                 self?.close()
@@ -107,6 +110,10 @@ final class PromptPanel {
             onSkip: { [weak self] in
                 self?.close()
                 onResult(false)
+            },
+            onKeepWorking: { [weak self] in
+                self?.close()
+                onKeepWorking()
             },
             onStart: onBreakStart,
             onSizeChange: { [weak self] size in self?.applyContentSize(size) }
@@ -567,11 +574,17 @@ private struct BreathTimer: View {
 
 private struct BreathContentView: View {
     let timeSinceLastBreak: TimeInterval?
+    /// The task running when the prompt appeared, if any. When set, the intro
+    /// offers "Keep working on X" so the break decision is a single prompt
+    /// instead of breath → separate "what are you working on?" picker.
+    let currentLabel: String?
     /// nil → show the OK/Skip intro gate. Non-nil → skip the gate and start
     /// the timer counting from this date (use a past date to pre-seed elapsed).
     let autoStartAt: Date?
     let onDone: () -> Void
     let onSkip: () -> Void
+    /// User chose to stay on the current task — dismiss without a follow-up picker.
+    let onKeepWorking: () -> Void
     let onStart: () -> Void
     let onSizeChange: (CGSize) -> Void
 
@@ -595,7 +608,7 @@ private struct BreathContentView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Image(systemName: "wind").foregroundStyle(.blue)
-                Text(hasStarted ? "On break" : "Stand up & breathe")
+                Text(hasStarted ? "On break" : "Time for a break?")
                     .font(.headline)
                 Spacer()
             }
@@ -604,36 +617,70 @@ private struct BreathContentView: View {
             if hasStarted {
                 BreathTimer(elapsed: elapsed, onDone: onDone)
             } else {
-                // Intro pill — same shape as the "Are you still working on?"
-                // confirm view: copy on the left, ✗ skip / ✓ start icons right.
-                HStack(spacing: 10) {
-                    Text("Stretch, breathe, move.")
-                        .font(.body)
-                    Spacer()
-                    CountdownRing(filled: breakProgress)
-                        .opacity(countdownActive ? 1 : 0)
+                // Two clear single-click choices. With a task running this folds
+                // the old breath → "what are you working on?" two-step into one:
+                // take a break, or keep the current task going.
+                Button { startBreath() } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "wind")
+                        Text("Take a break")
+                            .font(.body.weight(.semibold))
+                        Spacer()
+                        if currentLabel == nil {
+                            CountdownRing(filled: breakProgress)
+                                .opacity(countdownActive ? 1 : 0)
+                        }
+                    }
+                    .foregroundStyle(Color.blue)
+                    .padding(.vertical, 12)
+                    .padding(.horizontal, 14)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.blue.opacity(0.18))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.defaultAction)
+
+                if let label = currentLabel {
+                    Button {
+                        cancelIdleTimer()
+                        onKeepWorking()
+                    } label: {
+                        HStack(spacing: 8) {
+                            Circle().fill(Color.green).frame(width: 8, height: 8)
+                            Text("Keep working on \(label)")
+                                .font(.body)
+                                .lineLimit(1)
+                            Spacer()
+                            CountdownRing(filled: breakProgress)
+                                .opacity(countdownActive ? 1 : 0)
+                        }
+                        .padding(.vertical, 12)
+                        .padding(.horizontal, 14)
+                        .frame(maxWidth: .infinity)
+                        .background(Color.green.opacity(0.15))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain)
+                } else {
                     Button {
                         cancelIdleTimer()
                         onSkip()
                     } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.title2)
-                            .foregroundStyle(.secondary)
+                        HStack {
+                            Text("Not now")
+                                .font(.body)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                        }
+                        .padding(.vertical, 12)
+                        .padding(.horizontal, 14)
+                        .frame(maxWidth: .infinity)
+                        .background(Color.primary.opacity(0.06))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
                     }
                     .buttonStyle(.plain)
-
-                    Button { startBreath() } label: {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.title2)
-                            .foregroundStyle(Color.blue)
-                    }
-                    .buttonStyle(.plain)
-                    .keyboardShortcut(.defaultAction)
                 }
-                .padding(.vertical, 12)
-                .padding(.horizontal, 14)
-                .background(Color.blue.opacity(0.18))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
 
                 if let secs = timeSinceLastBreak {
                     Text("\(secs.hm) since last break")
@@ -682,7 +729,14 @@ private struct BreathContentView: View {
         idleTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(idleCountdownSeconds))
             if Task.isCancelled { return }
-            startBreath(at: Date().addingTimeInterval(-idleCountdownSeconds))
+            if currentLabel != nil {
+                // A task is running and the user didn't engage — likely heads-down.
+                // Keep working rather than stopping their task on a break.
+                onKeepWorking()
+            } else {
+                // Nothing running — presume away → start the break, backdated.
+                startBreath(at: Date().addingTimeInterval(-idleCountdownSeconds))
+            }
         }
     }
 

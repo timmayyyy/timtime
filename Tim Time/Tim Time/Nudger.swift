@@ -78,15 +78,23 @@ final class Nudger {
         guard let tracker else { return }
         promptPanel.showBreath(
             timeSinceLastBreak: tracker.timeSinceLastBreak,
+            currentLabel: runningLabel,
             autoStartAt: autoStartAt,
             onResult: { [weak self] done in
                 guard let self else { return }
                 self.onBreak = false
                 self.tracker?.logBreath(done: done)
-                // Both outcomes — break taken or skipped — flow into "what's
-                // next?" and a fresh cycle. Skipped = user wants to keep
-                // working, so ask them what; done = break finished, same Q.
+                // Break finished, or skipped with nothing running → ask what's next.
                 self.showWorkPrompt()
+                self.scheduleCycle()
+            },
+            onKeepWorking: { [weak self] in
+                guard let self else { return }
+                // Combined prompt: user chose to stay on the current task. Keep
+                // it running, no follow-up "what are you working on?" picker —
+                // just reschedule the next cycle.
+                self.onBreak = false
+                self.tracker?.logBreath(done: false)
                 self.scheduleCycle()
             },
             onBreakStart: { [weak self] in
