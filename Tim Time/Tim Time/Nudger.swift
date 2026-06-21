@@ -22,16 +22,30 @@ final class Nudger {
     /// ends and the work picker opens. Breaks the user chose are left alone.
     private var breakWasAutoStarted = false
 
-    /// Fixed interval — two of these are work check-ins, the third (at 45m)
-    /// is the breath check. Replacing the old 10-15min random delay with a
-    /// deterministic tick the user can predict.
+    /// Base tick — every 15m we surface a check-in. Whether it's a work check
+    /// or the break/keep-working prompt is decided per-tick from how long it's
+    /// been since the last real break.
     private let workInterval: TimeInterval = 15 * 60
-    private let ticksPerCycle = 3
+    /// Once it's been this long since the last real break, every tick shows the
+    /// break-or-keep-working prompt instead of a plain work check — and keeps
+    /// showing it each tick until a break resets the clock. A firmer "stand up"
+    /// nudge than the old once-per-cycle breath check.
+    private let standUpThreshold: TimeInterval = 45 * 60
 
     func start(tracker: Tracker) {
         self.tracker = tracker
         _ = Self.appNapActivity
-        tracker.onTaskStarted = { [weak self] in self?.scheduleCycle() }
+        tracker.onTaskStarted = { [weak self] in self?.handleTaskStarted() }
+        scheduleCycle()
+    }
+
+    /// User started/switched a task → re-anchor the 15m work-check cadence to
+    /// now, so a check-in doesn't fire moments after they begin. Exception: once
+    /// a stand-up nudge is overdue (past `standUpThreshold` since the last
+    /// break), keep the running cadence so repeated task switches can't keep
+    /// deferring the break reminder.
+    private func handleTaskStarted() {
+        if let since = tracker?.timeSinceLastBreak, since >= standUpThreshold { return }
         scheduleCycle()
     }
 
@@ -74,23 +88,36 @@ final class Nudger {
         scheduleCycle()
     }
 
-    /// 15m → work check, 30m → work check, 45m → breath check. The breath
-    /// outcome reschedules a fresh cycle so the next tick is always exactly
-    /// 15m away — no drift, no overlapping signals.
+    /// One repeating 15m tick. Each tick surfaces either a work check-in or,
+    /// once it's been `standUpThreshold` since the last real break, the
+    /// break-or-keep-working prompt — repeating every tick until a break resets
+    /// the clock. Anchored to user activity (restarted by `onTaskStarted`) and
+    /// paused during a break (the `onBreak` guard; a break outcome reschedules a
+    /// fresh cycle).
     private func scheduleCycle() {
         cycle?.cancel()
+        let interval = workInterval
         cycle = Task { @MainActor [weak self] in
-            for tick in 1...3 {
-                try? await Task.sleep(for: .seconds(Int(15 * 60)))
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(Int(interval)))
                 if Task.isCancelled { return }
                 guard let self else { return }
                 if self.onBreak { return }
-                if tick == self.ticksPerCycle {
-                    self.showBreath(autoStartAt: nil)
-                } else {
-                    self.showWorkPrompt()
-                }
+                self.tickPrompt()
             }
+        }
+    }
+
+    /// Decide and show this tick's prompt: the break/keep-working prompt once
+    /// the user has gone `standUpThreshold` without a real break, otherwise the
+    /// work check-in. `timeSinceLastBreak` is nil when the user isn't actively
+    /// working — there's nothing to stand up from, so fall through to the work
+    /// prompt (which opens the picker if nothing's running).
+    private func tickPrompt() {
+        if let sinceBreak = tracker?.timeSinceLastBreak, sinceBreak >= standUpThreshold {
+            showBreath(autoStartAt: nil)
+        } else {
+            showWorkPrompt()
         }
     }
 
