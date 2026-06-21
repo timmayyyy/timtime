@@ -33,7 +33,7 @@ Tim Time/scripts/release.sh ← archive → notarize → staple → DMG → Spar
 ## Build (dev)
 
 Open `Tim Time/Tim Time.xcodeproj` in Xcode, hit Run. Deployment target macOS 14+ (`MACOSX_DEPLOYMENT_TARGET = 14.0`).
-`xcodebuild` from CLI won't work unless `xcode-select -s` points to Xcode.app (currently points to CLT).
+CLI builds work too (no Xcode UI needed): `xcodebuild -project "Tim Time/Tim Time.xcodeproj" -scheme "Tim Time" -configuration Debug -destination 'platform=macOS' build` — requires `xcode-select -p` to point at Xcode.app (not the bare Command Line Tools).
 
 ## One-time setup (do these in Xcode UI before first release)
 

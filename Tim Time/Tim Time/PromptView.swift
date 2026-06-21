@@ -40,6 +40,7 @@ final class PromptPanel {
         lastLabel: String?,
         currentLabel: String?,
         timeSinceLastBreak: TimeInterval?,
+        startInPicker: Bool = false,
         onBreath: @escaping (Bool) -> Void,
         onBreakStart: @escaping () -> Void,
         onSubmit: @escaping (String) -> Void
@@ -50,6 +51,7 @@ final class PromptPanel {
             lastLabel: lastLabel,
             currentLabel: currentLabel,
             timeSinceLastBreak: timeSinceLastBreak,
+            startInPicker: startInPicker,
             onSubmit: { [weak self] label in
                 onSubmit(label)
                 self?.close()
@@ -65,8 +67,9 @@ final class PromptPanel {
             onSizeChange: { [weak self] size in self?.applyContentSize(size) }
         )
         // Initial width matches the SwiftUI .frame(width:) the prompt picks for
-        // its initial phase — no first-paint resize, no wobble.
-        let width: CGFloat = currentLabel == nil ? 340 : 280
+        // its initial phase — no first-paint resize, no wobble. The picker is
+        // wider, so size for it whenever the prompt opens straight into it.
+        let width: CGFloat = (currentLabel == nil || startInPicker) ? 340 : 280
         present(AnyView(content), initialSize: NSSize(width: width, height: 400), autoDismissAfter: 300)
     }
 
@@ -97,6 +100,7 @@ final class PromptPanel {
         autoStartAt: Date? = nil,
         onResult: @escaping (Bool) -> Void,
         onKeepWorking: @escaping () -> Void = {},
+        onSwitchTask: @escaping () -> Void = {},
         onBreakStart: @escaping () -> Void
     ) {
         let content = BreathContentView(
@@ -114,6 +118,10 @@ final class PromptPanel {
             onKeepWorking: { [weak self] in
                 self?.close()
                 onKeepWorking()
+            },
+            onSwitchTask: { [weak self] in
+                self?.close()
+                onSwitchTask()
             },
             onStart: onBreakStart,
             onSizeChange: { [weak self] size in self?.applyContentSize(size) }
@@ -188,6 +196,10 @@ private struct PromptContentView: View {
     let lastLabel: String?
     let currentLabel: String?
     let timeSinceLastBreak: TimeInterval?
+    /// Open straight in the picker even when a task is running — used by the
+    /// break prompt's "Work on something else" path so the user lands on the
+    /// label picker instead of the "are you still working on?" confirm gate.
+    let startInPicker: Bool
     let onSubmit: (String) -> Void
     let onDismiss: () -> Void
     let onBreath: (Bool) -> Void
@@ -220,7 +232,7 @@ private struct PromptContentView: View {
     private enum Phase { case confirm, picker, breath }
     private var phase: Phase {
         if inBreath { return .breath }
-        if currentLabel != nil && !showPicker { return .confirm }
+        if currentLabel != nil && !showPicker && !startInPicker { return .confirm }
         return .picker
     }
 
@@ -231,7 +243,7 @@ private struct PromptContentView: View {
     /// After the user clicks ✗ ("no, not on this anymore"), don't re-suggest the
     /// just-rejected label as the pinned "continue" — that would be contradictory.
     private var effectiveLastLabel: String? {
-        if showPicker, lastLabel == currentLabel { return nil }
+        if (showPicker || startInPicker), lastLabel == currentLabel { return nil }
         return lastLabel
     }
 
@@ -405,13 +417,6 @@ private struct PromptContentView: View {
         enterBreath(startedAt: Date())
     }
 
-    /// Idle ring filled (30s of no prompt interaction) — switch to the breath
-    /// phase. The ring's visible fill makes this consent-driven: the user saw
-    /// it ticking and chose not to dismiss the prompt.
-    private func autoBreak() {
-        enterBreath(startedAt: Date().addingTimeInterval(-idleCountdownSeconds))
-    }
-
     private func enterBreath(startedAt: Date) {
         cancelIdleTimer()
         breathStartedAt = startedAt
@@ -442,12 +447,15 @@ private struct PromptContentView: View {
                 onDismiss()
             }
         case .picker:
-            // Nothing was running — user opened (or got served) the picker
-            // but didn't pick a task. Presume away → auto-break.
+            // Ignored picker → just close, whether or not a task is running. We
+            // never silently flip to a break: an untracked gap is already
+            // inferred as a break by `timeSinceLastBreak`, and a break the user
+            // didn't ask for is the surprising behaviour we're removing. A real
+            // walk-away with a task running is still caught by the idle watchdog.
             idleTask = Task { @MainActor in
                 try? await Task.sleep(for: .seconds(idleCountdownSeconds))
                 if Task.isCancelled { return }
-                autoBreak()
+                onDismiss()
             }
         }
     }
@@ -527,23 +535,6 @@ private struct PromptContentView: View {
 
 // MARK: - Small panel UI
 
-/// Filled-arc countup for the Break button. `filled` 0.0 → 1.0 — the stroke
-/// fills clockwise as the idle timer runs; complete arc = auto-break fires.
-private struct CountdownRing: View {
-    let filled: Double
-
-    var body: some View {
-        ZStack {
-            Circle().stroke(Color.blue.opacity(0.25), lineWidth: 2)
-            Circle()
-                .trim(from: 0, to: max(0, min(1, filled)))
-                .stroke(Color.blue, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-        }
-        .frame(width: 14, height: 14)
-    }
-}
-
 /// Shared "break in progress" pill: elapsed time on the left, ✓ icon on
 /// the right. Same shape as the confirm view's current-task pill for
 /// visual consistency. Used by the inline breath phase of the work prompt
@@ -585,6 +576,9 @@ private struct BreathContentView: View {
     let onSkip: () -> Void
     /// User chose to stay on the current task — dismiss without a follow-up picker.
     let onKeepWorking: () -> Void
+    /// User wants neither a break nor the current task — open the label picker
+    /// so they can switch to something else.
+    let onSwitchTask: () -> Void
     let onStart: () -> Void
     let onSizeChange: (CGSize) -> Void
 
@@ -594,8 +588,6 @@ private struct BreathContentView: View {
     /// Idle timer for the intro gate — auto-starts the break if the user
     /// doesn't engage, same pattern as the confirm view's countdown ring.
     @State private var idleTask: Task<Void, Never>?
-    @State private var breakProgress: Double = 0
-    @State private var countdownActive = false
     private let idleCountdownSeconds: TimeInterval = 30
 
     private var hasStarted: Bool { startedAt != nil }
@@ -617,75 +609,66 @@ private struct BreathContentView: View {
             if hasStarted {
                 BreathTimer(elapsed: elapsed, onDone: onDone)
             } else {
-                // Two clear single-click choices. With a task running this folds
-                // the old breath → "what are you working on?" two-step into one:
-                // take a break, or keep the current task going.
+                // Encouraging design: the break is the one big, obvious action.
+                // Staying on a task is a quiet secondary choice underneath. No
+                // countdown ring — ignoring this never forces a break and never
+                // snaps you back to work; the break just stays one easy click.
                 Button { startBreath() } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "wind")
+                    VStack(spacing: 4) {
+                        Image(systemName: "figure.walk")
+                            .font(.title)
                         Text("Take a break")
-                            .font(.body.weight(.semibold))
-                        Spacer()
-                        if currentLabel == nil {
-                            CountdownRing(filled: breakProgress)
-                                .opacity(countdownActive ? 1 : 0)
-                        }
+                            .font(.title3.weight(.bold))
+                        Text("Stand up and move for a few minutes")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
                     }
                     .foregroundStyle(Color.blue)
-                    .padding(.vertical, 12)
-                    .padding(.horizontal, 14)
                     .frame(maxWidth: .infinity)
+                    .padding(.vertical, 18)
+                    .padding(.horizontal, 14)
                     .background(Color.blue.opacity(0.18))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut(.defaultAction)
 
                 if let label = currentLabel {
-                    Button {
+                    // Quiet secondary: stay on the current task.
+                    quietRow {
+                        Circle().fill(Color.green).frame(width: 6, height: 6)
+                        Text("Keep working on \(label)").lineLimit(1)
+                        Spacer()
+                    } action: {
                         cancelIdleTimer()
                         onKeepWorking()
-                    } label: {
-                        HStack(spacing: 8) {
-                            Circle().fill(Color.green).frame(width: 8, height: 8)
-                            Text("Keep working on \(label)")
-                                .font(.body)
-                                .lineLimit(1)
-                            Spacer()
-                            CountdownRing(filled: breakProgress)
-                                .opacity(countdownActive ? 1 : 0)
-                        }
-                        .padding(.vertical, 12)
-                        .padding(.horizontal, 14)
-                        .frame(maxWidth: .infinity)
-                        .background(Color.green.opacity(0.15))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
                     }
-                    .buttonStyle(.plain)
+
+                    // Quiet tertiary: switch to a different task.
+                    quietRow {
+                        Image(systemName: "arrow.left.arrow.right").font(.caption)
+                        Text("Work on something else").lineLimit(1)
+                        Spacer()
+                    } action: {
+                        cancelIdleTimer()
+                        onSwitchTask()
+                    }
                 } else {
-                    Button {
+                    quietRow {
+                        Text("Not now")
+                        Spacer()
+                    } action: {
                         cancelIdleTimer()
                         onSkip()
-                    } label: {
-                        HStack {
-                            Text("Not now")
-                                .font(.body)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                        }
-                        .padding(.vertical, 12)
-                        .padding(.horizontal, 14)
-                        .frame(maxWidth: .infinity)
-                        .background(Color.primary.opacity(0.06))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
                     }
-                    .buttonStyle(.plain)
                 }
 
                 if let secs = timeSinceLastBreak {
                     Text("\(secs.hm) since last break")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .padding(.top, 2)
                 }
             }
         }
@@ -703,6 +686,25 @@ private struct BreathContentView: View {
         }
     }
 
+    /// A low-key secondary action row: small, secondary-colored, full-width,
+    /// no fill. Keeps "Take a break" the only visually loud choice.
+    @ViewBuilder
+    private func quietRow<Content: View>(
+        @ViewBuilder _ content: () -> Content,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) { content() }
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .padding(.vertical, 8)
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
     private func startBreath(at: Date = Date()) {
         cancelIdleTimer()
         startedAt = at
@@ -718,32 +720,22 @@ private struct BreathContentView: View {
         }
     }
 
-    /// Mirrors PromptContentView's idle countdown: if the user doesn't engage
-    /// with the intro within 30s, assume they've walked away and start the
-    /// break with elapsed time backdated to when the ring began filling.
+    /// If the user doesn't engage with the break offer within 30s, never force
+    /// a break — whether or not a task is running, quietly stand down and let
+    /// the cycle reschedule. A genuine walk-away is still caught by the idle
+    /// watchdog (and an auto-started break, like waking from sleep, self-corrects
+    /// the moment real input resumes).
     private func startIdleTimer() {
         idleTask?.cancel()
-        breakProgress = 0
-        countdownActive = true
-        withAnimation(.linear(duration: idleCountdownSeconds)) { breakProgress = 1 }
         idleTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(idleCountdownSeconds))
             if Task.isCancelled { return }
-            if currentLabel != nil {
-                // A task is running and the user didn't engage — likely heads-down.
-                // Keep working rather than stopping their task on a break.
-                onKeepWorking()
-            } else {
-                // Nothing running — presume away → start the break, backdated.
-                startBreath(at: Date().addingTimeInterval(-idleCountdownSeconds))
-            }
+            onKeepWorking()
         }
     }
 
     private func cancelIdleTimer() {
         idleTask?.cancel()
         idleTask = nil
-        countdownActive = false
-        breakProgress = 0
     }
 }

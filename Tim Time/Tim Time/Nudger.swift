@@ -16,6 +16,11 @@ final class Nudger {
     /// True while the user is actively on a break — suppresses every
     /// cycle-driven prompt so nothing replaces the visible break view.
     private var onBreak = false
+    /// True when the current break was started automatically (e.g. on wake from
+    /// a short sleep) rather than by an explicit user choice. Only these
+    /// self-correct: if the idle watchdog sees the user typing again, the break
+    /// ends and the work picker opens. Breaks the user chose are left alone.
+    private var breakWasAutoStarted = false
 
     /// Fixed interval — two of these are work check-ins, the third (at 45m)
     /// is the breath check. Replacing the old 10-15min random delay with a
@@ -51,6 +56,24 @@ final class Nudger {
         showWorkPrompt()
     }
 
+    /// True while we're in an auto-started break that should yield the instant
+    /// the user turns out to be active. The idle watchdog polls this.
+    var isInAutoBreak: Bool { onBreak && breakWasAutoStarted }
+
+    /// Called by the idle watchdog when it sees sustained input during an
+    /// auto-started break: end the break and ask what they're working on, so a
+    /// wrongly-assumed break self-corrects instead of silently accruing dead
+    /// time. No-op for breaks the user chose deliberately. The break still
+    /// counts (it's inferred from the work gap), we just stop assuming it.
+    func endAutoBreakForActivity() {
+        guard onBreak, breakWasAutoStarted else { return }
+        onBreak = false
+        breakWasAutoStarted = false
+        promptPanel.close()
+        showWorkPrompt()
+        scheduleCycle()
+    }
+
     /// 15m → work check, 30m → work check, 45m → breath check. The breath
     /// outcome reschedules a fresh cycle so the next tick is always exactly
     /// 15m away — no drift, no overlapping signals.
@@ -74,7 +97,7 @@ final class Nudger {
     /// Show the breath panel. `autoStartAt` non-nil skips the intro gate and
     /// starts the timer counting from that date (use `Date()` for now, or an
     /// earlier date to pre-seed elapsed).
-    func showBreath(autoStartAt: Date?) {
+    func showBreath(autoStartAt: Date?, autoStarted: Bool = false) {
         guard let tracker else { return }
         promptPanel.showBreath(
             timeSinceLastBreak: tracker.timeSinceLastBreak,
@@ -97,14 +120,25 @@ final class Nudger {
                 self.tracker?.logBreath(done: false)
                 self.scheduleCycle()
             },
+            onSwitchTask: { [weak self] in
+                guard let self else { return }
+                // User wants neither a break nor the current task. Skip the
+                // break and open the picker directly so they can switch tasks;
+                // the running task keeps going until they choose a new label.
+                self.onBreak = false
+                self.tracker?.logBreath(done: false)
+                self.showWorkPrompt(startInPicker: true)
+                self.scheduleCycle()
+            },
             onBreakStart: { [weak self] in
                 self?.onBreak = true
+                self?.breakWasAutoStarted = autoStarted
                 self?.tracker?.stop()
             }
         )
     }
 
-    private func showWorkPrompt() {
+    private func showWorkPrompt(startInPicker: Bool = false) {
         guard let tracker, !onBreak else { return }
         promptPanel.show(
             tracker: tracker,
@@ -112,6 +146,7 @@ final class Nudger {
             lastLabel: tracker.lastWorkedLabel,
             currentLabel: runningLabel,
             timeSinceLastBreak: tracker.timeSinceLastBreak,
+            startInPicker: startInPicker,
             onBreath: { [weak self] done in
                 guard let self else { return }
                 self.onBreak = false
@@ -123,6 +158,7 @@ final class Nudger {
             },
             onBreakStart: { [weak self] in
                 self?.onBreak = true
+                self?.breakWasAutoStarted = false
                 self?.tracker?.stop()
             }
         ) { [weak self] label in

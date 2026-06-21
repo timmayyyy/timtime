@@ -1,6 +1,9 @@
 import Foundation
 import Combine
 import AppKit
+import IOKit
+import IOKit.pwr_mgt
+import CoreAudio
 
 @MainActor
 final class Tracker: ObservableObject {
@@ -14,6 +17,28 @@ final class Tracker: ObservableObject {
     @Published private(set) var archivedLabels: Set<String> = []
 
     private var tickTask: Task<Void, Never>?
+    /// Always-on poll that watches system input idle so a task left running
+    /// while the user is away (Mac awake, no sleep notification) gets auto-stopped.
+    private var idleWatchTask: Task<Void, Never>?
+    /// Label we auto-stopped because the user went idle — used to prompt
+    /// "what are you working on?" once input resumes. nil when not in that state.
+    private var awayStoppedLabel: String?
+    /// Last time the watchdog saw the user "present without typing" — a meeting,
+    /// call, or video keeping the screen awake. Counts as activity so sitting in
+    /// a meeting never trips the idle auto-stop, and so a post-meeting walk-away
+    /// is backdated to the meeting's end, not to the last keystroke before it.
+    private var lastActiveSignalAt: Date?
+    /// No keyboard/mouse input for this long while a task is running → treat the
+    /// user as away: close the entry (backdated to the last input) and stop.
+    private let awayIdleThreshold: TimeInterval = 5 * 60
+    /// How often the watchdog samples idle time.
+    private let idleWatchInterval: TimeInterval = 15
+    /// Consecutive idle-watchdog polls that have seen real input while an
+    /// auto-started break is showing. Two in a row (~30s of genuine activity)
+    /// ends the break and re-prompts — long enough to ignore the lone keystroke
+    /// that merely woke the machine, and a video keeping the screen lit doesn't
+    /// count (we read raw HID idle here, not "present despite idle").
+    private var activeBreakPolls = 0
     private let storeURL: URL
     private let breathStoreURL: URL
     /// Holds the live entry's label/start/last-checkpoint so a hard kill
@@ -64,6 +89,7 @@ final class Tracker: ObservableObject {
         loadArchived()
         nudger.start(tracker: self)
         observeSleep()
+        startIdleWatchdog()
         // After the app has settled (and the SMAppService login-item launch isn't
         // racing with the user opening other apps), prompt if nothing is being
         // tracked — covers the "logged in, forgot to click anything" case.
@@ -132,6 +158,8 @@ final class Tracker: ObservableObject {
 
     private func handleDidWake() {
         defer { sleepStart = nil }
+        // A real sleep supersedes any pending idle-return prompt.
+        awayStoppedLabel = nil
         // Always restart the periodic timers from wake, even for lid bumps.
         nudger.resetTimers()
         guard let start = sleepStart else { return }
@@ -140,12 +168,151 @@ final class Tracker: ObservableObject {
 
         if duration < longSleepThreshold {
             // Short sleep → show the breath panel with elapsed pre-rolled so
-            // it reads "you've been on break for Xm". User clicks Done to resume.
-            nudger.showBreath(autoStartAt: start)
+            // it reads "you've been on break for Xm". The user can click Done to
+            // resume — or, since this break was started automatically, just
+            // start typing and the idle watchdog ends it and asks what's next.
+            nudger.showBreath(autoStartAt: start, autoStarted: true)
         } else {
             // Long sleep → fresh start. Open the menu popover with welcome-back.
             onWakePrompt?()
         }
+    }
+
+    // MARK: - Idle watchdog
+
+    /// Sleep detection only fires when macOS actually sleeps. If the Mac stays
+    /// awake while the user walks away (lid open on power, an app holding it
+    /// awake), a task can run for hours of dead time. This poll catches that by
+    /// watching system-wide HID idle: past the threshold we auto-stop, backdating
+    /// the entry's end to the last real input so the idle stretch isn't counted
+    /// as work, and re-prompt once the user comes back.
+    private func startIdleWatchdog() {
+        idleWatchTask?.cancel()
+        idleWatchTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(Int(self?.idleWatchInterval ?? 15)))
+                if Task.isCancelled { return }
+                self?.idleWatchdogTick()
+            }
+        }
+    }
+
+    private func idleWatchdogTick() {
+        let idle = Self.systemInputIdle()
+        // "Present without typing" — in a meeting/call/video. Counts as activity
+        // so the watchdog never mistakes a quiet meeting for being away.
+        if Self.userIsPresentDespiteIdle() { lastActiveSignalAt = Date() }
+
+        // Reset the break-engagement counter whenever we're not in an
+        // interruptible break, so a later auto-break counts from zero.
+        if !nudger.isInAutoBreak { activeBreakPolls = 0 }
+
+        if isRunning, let start = runningStart {
+            // Last evidence the user was here: real input, or an active
+            // meeting/video keeping the screen awake.
+            let lastPresence = max(
+                Date().addingTimeInterval(-idle),
+                lastActiveSignalAt ?? .distantPast
+            )
+            if Date().timeIntervalSince(lastPresence) >= awayIdleThreshold {
+                // Backdate the entry's end to that last presence (clamped to the
+                // start). The resulting gap reads as a break for free via
+                // `timeSinceLastBreak`'s gap inference — no breath event needed.
+                awayStoppedLabel = currentLabel
+                closeCurrentEntry(asOf: max(start, lastPresence))
+                currentLabel = ""
+                save()
+                // Don't let queued check-ins fire into an empty room; the cycle
+                // re-anchors when the user picks a task on return.
+                nudger.cancelTimers()
+            }
+        } else if nudger.isInAutoBreak {
+            // The app auto-decided we're on a break (e.g. waking from a short
+            // sleep), but real input has resumed. Require two consecutive active
+            // polls (~30s of genuine typing/clicking — not the keystroke that
+            // woke the machine) before ending the break and asking what they're
+            // working on, rather than leaving them silently "on break".
+            if idle < idleWatchInterval {
+                activeBreakPolls += 1
+                if activeBreakPolls >= 2 {
+                    activeBreakPolls = 0
+                    nudger.endAutoBreakForActivity()
+                }
+            } else {
+                activeBreakPolls = 0
+            }
+        } else if awayStoppedLabel != nil, idle < idleWatchInterval * 2 {
+            // Input resumed after an idle auto-stop → ask what they're on now.
+            awayStoppedLabel = nil
+            nudger.promptIfIdle()
+        }
+    }
+
+    /// True when the user is clearly at the machine but not generating input —
+    /// a video call, meeting, or media playback. Used to suppress the idle
+    /// auto-stop. Two complementary public signals, neither needing permission:
+    /// an app holding a "keep the display awake" power assertion, or the mic
+    /// being live. Defaults to false (watchdog active) if both reads fail.
+    private static func userIsPresentDespiteIdle() -> Bool {
+        displaySleepPrevented() || micInUse()
+    }
+
+    /// Any process asserting "prevent the display from idle-sleeping" — held by
+    /// Zoom/Meet/Teams/FaceTime during calls and by video players during
+    /// playback, including when muted or camera-off. Scoped to *display* sleep
+    /// only; system-sleep assertions (downloads, backups) are deliberately
+    /// ignored so background tasks don't keep a stale task alive.
+    private static func displaySleepPrevented() -> Bool {
+        var status: Unmanaged<CFDictionary>?
+        guard IOPMCopyAssertionsStatus(&status) == kIOReturnSuccess,
+              let dict = status?.takeRetainedValue() as? [String: Any] else { return false }
+        let displayKeys = [
+            kIOPMAssertionTypePreventUserIdleDisplaySleep as String,
+            kIOPMAssertionTypeNoDisplaySleep as String  // legacy alias
+        ]
+        return displayKeys.contains { ((dict[$0] as? NSNumber)?.intValue ?? 0) > 0 }
+    }
+
+    /// Whether the default input device is running in any process — i.e. some
+    /// app has the microphone live (a call/recording).
+    private static func micInUse() -> Bool {
+        var device = AudioObjectID(0)
+        var size = UInt32(MemoryLayout<AudioObjectID>.size)
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        guard AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &device
+        ) == noErr, device != 0 else { return false }
+
+        var running = UInt32(0)
+        size = UInt32(MemoryLayout<UInt32>.size)
+        addr.mSelector = kAudioDevicePropertyDeviceIsRunningSomewhere
+        guard AudioObjectGetPropertyData(
+            device, &addr, 0, nil, &size, &running
+        ) == noErr else { return false }
+        return running != 0
+    }
+
+    /// Seconds since the last system-wide keyboard/mouse/HID input, read from
+    /// IOHIDSystem's `HIDIdleTime` (nanoseconds). Returns 0 if unavailable.
+    /// Works without the sandbox, which this app already disables.
+    private static func systemInputIdle() -> TimeInterval {
+        var iterator: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(
+            kIOMainPortDefault, IOServiceMatching("IOHIDSystem"), &iterator
+        ) == KERN_SUCCESS else { return 0 }
+        defer { IOObjectRelease(iterator) }
+        let entry = IOIteratorNext(iterator)
+        guard entry != 0 else { return 0 }
+        defer { IOObjectRelease(entry) }
+        var props: Unmanaged<CFMutableDictionary>?
+        guard IORegistryEntryCreateCFProperties(entry, &props, kCFAllocatorDefault, 0) == KERN_SUCCESS,
+              let dict = props?.takeRetainedValue() as? [String: Any],
+              let idleNs = dict["HIDIdleTime"] as? NSNumber else { return 0 }
+        return idleNs.doubleValue / 1_000_000_000
     }
 
     var isRunning: Bool { runningStart != nil }
@@ -160,6 +327,7 @@ final class Tracker: ObservableObject {
     func start(_ label: String) {
         let trimmed = label.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
+        awayStoppedLabel = nil
         if isRunning && currentLabel == trimmed { return }
         closeCurrentEntry()
         currentLabel = trimmed
@@ -498,7 +666,10 @@ final class Tracker: ObservableObject {
 
     // MARK: - Internal
 
-    private func closeCurrentEntry() {
+    /// Close the live entry. `asOf` sets the end time (clamped to never precede
+    /// the start) — the idle watchdog passes the last-input time to backdate
+    /// away time out of the record; everything else closes at the present.
+    private func closeCurrentEntry(asOf end: Date = Date()) {
         guard let s = runningStart, !currentLabel.isEmpty else {
             runningStart = nil
             tickTask?.cancel()
@@ -506,7 +677,7 @@ final class Tracker: ObservableObject {
             clearRunningCheckpoint()
             return
         }
-        entries.insert(TimeEntry(label: currentLabel, start: s, end: Date()), at: 0)
+        entries.insert(TimeEntry(label: currentLabel, start: s, end: max(s, end)), at: 0)
         runningStart = nil
         tickTask?.cancel()
         tickTask = nil
