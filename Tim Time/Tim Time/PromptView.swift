@@ -41,6 +41,7 @@ final class PromptPanel {
         currentLabel: String?,
         timeSinceLastBreak: TimeInterval?,
         startInPicker: Bool = false,
+        makeKey: Bool = false,
         onBreath: @escaping (Bool) -> Void,
         onBreakStart: @escaping () -> Void,
         onSubmit: @escaping (String) -> Void
@@ -70,7 +71,7 @@ final class PromptPanel {
         // its initial phase — no first-paint resize, no wobble. The picker is
         // wider, so size for it whenever the prompt opens straight into it.
         let width: CGFloat = (currentLabel == nil || startInPicker) ? 340 : 280
-        present(AnyView(content), initialSize: NSSize(width: width, height: 400), autoDismissAfter: 300)
+        present(AnyView(content), initialSize: NSSize(width: width, height: 400), autoDismissAfter: 300, makeKey: makeKey)
     }
 
     /// Resize the panel to match SwiftUI's intrinsic size. Maintains the user's
@@ -138,7 +139,7 @@ final class PromptPanel {
         panel = nil
     }
 
-    private func present(_ content: AnyView, initialSize: NSSize, autoDismissAfter seconds: TimeInterval) {
+    private func present(_ content: AnyView, initialSize: NSSize, autoDismissAfter seconds: TimeInterval, makeKey: Bool = false) {
         // Don't stack on any other FloatingPanel that's already up — the
         // menu surface and the prompt are mutually exclusive. The next
         // scheduled fire will re-attempt.
@@ -174,7 +175,18 @@ final class PromptPanel {
         }
 
         p.contentView = NSHostingView(rootView: content)
-        p.orderFrontRegardless()
+        if makeKey {
+            // The user explicitly asked to switch tasks, so pull focus to the
+            // panel: activate and make it key so the text field is live and
+            // they can type a label and hit Return without clicking first.
+            // Closing the panel afterwards returns focus to whatever they were
+            // doing (this is an accessory app with no other windows).
+            NSApp.activate(ignoringOtherApps: true)
+            p.makeKeyAndOrderFront(nil)
+        } else {
+            // Normal nudges never steal focus from the user's current work.
+            p.orderFrontRegardless()
+        }
 
         panel = p
 
@@ -563,6 +575,28 @@ private struct BreathTimer: View {
     }
 }
 
+/// One way of nudging the user to step away. A fresh one is picked each time
+/// the break prompt appears so the reminder reads as a different "attempt"
+/// rather than the same nag every 15 minutes.
+private struct BreakPrompt {
+    let icon: String
+    let title: String
+    let subtitle: String
+
+    static let all: [BreakPrompt] = [
+        BreakPrompt(icon: "figure.walk",        title: "Take a break",     subtitle: "Stand up and move for a few minutes"),
+        BreakPrompt(icon: "figure.flexibility", title: "Time to stretch",  subtitle: "Roll your shoulders, loosen your neck"),
+        BreakPrompt(icon: "eye",                title: "Rest your eyes",   subtitle: "Look at something 20 feet away for 20 seconds"),
+        BreakPrompt(icon: "figure.walk",        title: "Go for a wander",  subtitle: "A short walk resets your focus"),
+        BreakPrompt(icon: "wind",               title: "Take a breather",  subtitle: "A few slow breaths, then back to it"),
+        BreakPrompt(icon: "drop",               title: "Grab some water",  subtitle: "Hydrate and step away for a moment"),
+        BreakPrompt(icon: "figure.stand",       title: "Stand up",         subtitle: "Your back will thank you later"),
+        BreakPrompt(icon: "sun.max",            title: "Look outside",     subtitle: "Find a window and let your eyes relax"),
+    ]
+
+    static func random() -> BreakPrompt { all.randomElement() ?? all[0] }
+}
+
 private struct BreathContentView: View {
     let timeSinceLastBreak: TimeInterval?
     /// The task running when the prompt appeared, if any. When set, the intro
@@ -588,6 +622,9 @@ private struct BreathContentView: View {
     /// Idle timer for the intro gate — auto-starts the break if the user
     /// doesn't engage, same pattern as the confirm view's countdown ring.
     @State private var idleTask: Task<Void, Never>?
+    /// Picked once when this view instance appears (a fresh instance is built
+    /// for every prompt), so each break nudge shows a different message.
+    @State private var prompt = BreakPrompt.random()
     private let idleCountdownSeconds: TimeInterval = 30
 
     private var hasStarted: Bool { startedAt != nil }
@@ -609,22 +646,42 @@ private struct BreathContentView: View {
             if hasStarted {
                 BreathTimer(elapsed: elapsed, onDone: onDone)
             } else {
-                // Encouraging design: the break is the one big, obvious action.
-                // Staying on a task is a quiet secondary choice underneath. No
-                // countdown ring — ignoring this never forces a break and never
-                // snaps you back to work; the break just stays one easy click.
+                // Big, glanceable headline: how long since the last real break.
+                // That number is the whole reason for the nudge, so make it the
+                // focal point instead of a footnote.
+                if let secs = timeSinceLastBreak {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(secs.hm)
+                            .font(.system(size: 40, weight: .heavy, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                        Text("since your last break")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.bottom, 4)
+                }
+
+                // The break is the one big, obvious action. Its copy varies each
+                // time (see `prompt`) so the nudge reads as a different attempt
+                // rather than the same nag every 15 minutes.
                 Button { startBreath() } label: {
                     VStack(spacing: 4) {
-                        Image(systemName: "figure.walk")
+                        Image(systemName: prompt.icon)
                             .font(.title)
-                        Text("Take a break")
+                        Text(prompt.title)
                             .font(.title3.weight(.bold))
-                        Text("Stand up and move for a few minutes")
+                        Text(prompt.subtitle)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                     }
-                    .foregroundStyle(Color.blue)
+                    // Match the on-break counter: primary text (white in dark
+                    // mode) on the translucent-blue fill, rather than blue-on-blue.
+                    .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 18)
                     .padding(.horizontal, 14)
@@ -662,13 +719,6 @@ private struct BreathContentView: View {
                         cancelIdleTimer()
                         onSkip()
                     }
-                }
-
-                if let secs = timeSinceLastBreak {
-                    Text("\(secs.hm) since last break")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 2)
                 }
             }
         }

@@ -154,7 +154,9 @@ final class Nudger {
                 // the running task keeps going until they choose a new label.
                 self.onBreak = false
                 self.tracker?.logBreath(done: false)
-                self.showWorkPrompt(startInPicker: true)
+                // Pull focus to the picker — the user asked to switch, so let
+                // them type a label and hit Return immediately, then carry on.
+                self.showWorkPrompt(startInPicker: true, focusForTyping: true)
                 self.scheduleCycle()
             },
             onBreakStart: { [weak self] in
@@ -165,7 +167,7 @@ final class Nudger {
         )
     }
 
-    private func showWorkPrompt(startInPicker: Bool = false) {
+    private func showWorkPrompt(startInPicker: Bool = false, focusForTyping: Bool = false) {
         guard let tracker, !onBreak else { return }
         promptPanel.show(
             tracker: tracker,
@@ -174,6 +176,7 @@ final class Nudger {
             currentLabel: runningLabel,
             timeSinceLastBreak: tracker.timeSinceLastBreak,
             startInPicker: startInPicker,
+            makeKey: focusForTyping,
             onBreath: { [weak self] done in
                 guard let self else { return }
                 self.onBreak = false
