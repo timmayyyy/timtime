@@ -41,7 +41,7 @@ final class PromptPanel {
         currentLabel: String?,
         timeSinceLastBreak: TimeInterval?,
         startInPicker: Bool = false,
-        makeKey: Bool = false,
+        breakOverdue: Bool = false,
         onBreath: @escaping (Bool) -> Void,
         onBreakStart: @escaping () -> Void,
         onSubmit: @escaping (String) -> Void
@@ -53,6 +53,7 @@ final class PromptPanel {
             currentLabel: currentLabel,
             timeSinceLastBreak: timeSinceLastBreak,
             startInPicker: startInPicker,
+            breakOverdue: breakOverdue,
             onSubmit: { [weak self] label in
                 onSubmit(label)
                 self?.close()
@@ -65,13 +66,14 @@ final class PromptPanel {
                 onBreath(done)
             },
             onBreakStart: onBreakStart,
+            onRequestKey: { [weak self] in self?.makeCurrentPanelKey() },
             onSizeChange: { [weak self] size in self?.applyContentSize(size) }
         )
         // Initial width matches the SwiftUI .frame(width:) the prompt picks for
         // its initial phase — no first-paint resize, no wobble. The picker is
         // wider, so size for it whenever the prompt opens straight into it.
         let width: CGFloat = (currentLabel == nil || startInPicker) ? 340 : 280
-        present(AnyView(content), initialSize: NSSize(width: width, height: 400), autoDismissAfter: 300, makeKey: makeKey)
+        present(AnyView(content), initialSize: NSSize(width: width, height: 400), autoDismissAfter: 300)
     }
 
     /// Resize the panel to match SwiftUI's intrinsic size. Maintains the user's
@@ -95,41 +97,26 @@ final class PromptPanel {
         p.setFrame(NSRect(origin: NSPoint(x: x, y: y), size: size), display: true, animate: false)
     }
 
+    /// Standalone running-break timer — used for auto-started breaks (waking
+    /// from a short sleep, or the menu's quick break). The in-prompt break flow
+    /// lives in `PromptContentView`; this panel is just the counter + Done.
     func showBreath(
-        timeSinceLastBreak: TimeInterval?,
-        currentLabel: String? = nil,
-        autoStartAt: Date? = nil,
-        onResult: @escaping (Bool) -> Void,
-        onKeepWorking: @escaping () -> Void = {},
-        onSwitchTask: @escaping () -> Void = {},
+        startAt: Date,
+        onDone: @escaping () -> Void,
         onBreakStart: @escaping () -> Void
     ) {
         let content = BreathContentView(
-            timeSinceLastBreak: timeSinceLastBreak,
-            currentLabel: currentLabel,
-            autoStartAt: autoStartAt,
+            startAt: startAt,
             onDone: { [weak self] in
                 self?.close()
-                onResult(true)
-            },
-            onSkip: { [weak self] in
-                self?.close()
-                onResult(false)
-            },
-            onKeepWorking: { [weak self] in
-                self?.close()
-                onKeepWorking()
-            },
-            onSwitchTask: { [weak self] in
-                self?.close()
-                onSwitchTask()
+                onDone()
             },
             onStart: onBreakStart,
             onSizeChange: { [weak self] size in self?.applyContentSize(size) }
         )
-        // Breath panel never auto-dismisses — only Skip or Done close it. The
-        // user shouldn't have a stretch interrupted by the panel disappearing.
-        present(AnyView(content), initialSize: NSSize(width: 260, height: 220), autoDismissAfter: 0)
+        // Never auto-dismisses — only Done closes it. The user shouldn't have a
+        // stretch interrupted by the panel disappearing.
+        present(AnyView(content), initialSize: NSSize(width: 260, height: 150), autoDismissAfter: 0)
     }
 
     func close() {
@@ -139,7 +126,16 @@ final class PromptPanel {
         panel = nil
     }
 
-    private func present(_ content: AnyView, initialSize: NSSize, autoDismissAfter seconds: TimeInterval, makeKey: Bool = false) {
+    /// Bring the already-visible panel to key so its text field is live — used
+    /// when the user switches to the picker and should be able to type at once.
+    /// Closing the panel afterwards returns focus to whatever they were doing.
+    private func makeCurrentPanelKey() {
+        guard let p = panel else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        p.makeKeyAndOrderFront(nil)
+    }
+
+    private func present(_ content: AnyView, initialSize: NSSize, autoDismissAfter seconds: TimeInterval) {
         // Don't stack on any other FloatingPanel that's already up — the
         // menu surface and the prompt are mutually exclusive. The next
         // scheduled fire will re-attempt.
@@ -175,18 +171,9 @@ final class PromptPanel {
         }
 
         p.contentView = NSHostingView(rootView: content)
-        if makeKey {
-            // The user explicitly asked to switch tasks, so pull focus to the
-            // panel: activate and make it key so the text field is live and
-            // they can type a label and hit Return without clicking first.
-            // Closing the panel afterwards returns focus to whatever they were
-            // doing (this is an accessory app with no other windows).
-            NSApp.activate(ignoringOtherApps: true)
-            p.makeKeyAndOrderFront(nil)
-        } else {
-            // Normal nudges never steal focus from the user's current work.
-            p.orderFrontRegardless()
-        }
+        // Normal nudges never steal focus from the user's current work; the
+        // picker pulls focus on demand via makeCurrentPanelKey (the ✗ switch).
+        p.orderFrontRegardless()
 
         panel = p
 
@@ -212,10 +199,18 @@ private struct PromptContentView: View {
     /// break prompt's "Work on something else" path so the user lands on the
     /// label picker instead of the "are you still working on?" confirm gate.
     let startInPicker: Bool
+    /// True when a stand-up is overdue (≥ the Nudger's threshold since the last
+    /// break). Grows the inline break button from a small one-liner into the
+    /// prominent card — same check-in interface either way, no separate dialog.
+    let breakOverdue: Bool
     let onSubmit: (String) -> Void
     let onDismiss: () -> Void
     let onBreath: (Bool) -> Void
     let onBreakStart: () -> Void
+    /// Pull keyboard focus to the panel — called when the user switches to the
+    /// picker (✗) so they can type a label immediately and hit Return without a
+    /// stray click first. A passive nudge panel is shown non-key on purpose.
+    let onRequestKey: () -> Void
     let onSizeChange: (CGSize) -> Void
 
     @State private var input = ""
@@ -239,6 +234,9 @@ private struct PromptContentView: View {
     /// Label currently hovered in the picker — DayOverview's timeline
     /// renders matching segments in green.
     @State private var hoveredLabel: String?
+    /// Picked once per showing — the varied copy for the prominent (overdue)
+    /// break button, so each nudge reads as a different attempt.
+    @State private var prompt = BreakPrompt.random()
     @FocusState private var focused: Bool
 
     private enum Phase { case confirm, picker, breath }
@@ -323,14 +321,6 @@ private struct PromptContentView: View {
                     .id(headline)
                     .transition(.opacity)
                 Spacer()
-                if phase == .picker {
-                    Text("Break?")
-                        .font(.callout.weight(.semibold))
-                        .foregroundStyle(Color.blue)
-                        .contentShape(Rectangle())
-                        .onTapGesture { startBreath() }
-                        .padding(.trailing, 4)
-                }
             }
             .background(WindowDragArea())
             .animation(.easeInOut(duration: 0.25), value: headline)
@@ -343,6 +333,13 @@ private struct PromptContentView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.22), value: phase)
+
+            // One interface: the work check-in always shows; the break button
+            // lives inside it — a small one-liner normally, the prominent card
+            // once a stand-up is overdue. Hidden while the inline timer runs.
+            if phase != .breath {
+                breakButton
+            }
         }
         .panelContainer(width: phase == .picker ? 340 : 280, onSizeChange: onSizeChange)
         .onAppear {
@@ -388,7 +385,7 @@ private struct PromptContentView: View {
                 .buttonStyle(.plain)
                 .keyboardShortcut(.defaultAction)
 
-                Button { showPicker = true } label: {
+                Button { showPicker = true; onRequestKey() } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.title2)
                         .foregroundStyle(.secondary)
@@ -399,29 +396,73 @@ private struct PromptContentView: View {
             .padding(.horizontal, 14)
             .background(Color.green.opacity(0.18))
             .clipShape(RoundedRectangle(cornerRadius: 8))
-
-            // Break is now opt-in — no auto-trigger ring. Confirm mode just
-            // auto-dismisses (keeps tracking) so a heads-down user isn't
-            // accidentally pushed onto a break.
-            Button(action: startBreath) {
-                HStack {
-                    Text("Break")
-                        .font(.body)
-                        .foregroundStyle(Color.blue)
-                    Spacer()
-                }
-                .padding(.vertical, 12).padding(.horizontal, 12)
-                .frame(maxWidth: .infinity)
-                .background(Color.blue.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-            }
-            .buttonStyle(.plain)
         }
     }
 
     @ViewBuilder
     private var breathView: some View {
         BreathTimer(elapsed: breathElapsed) { onBreath(true) }
+    }
+
+    /// The one break affordance, shared across confirm and picker. Small and
+    /// quiet under the threshold; once a stand-up is overdue it grows into the
+    /// prominent card with the big time-since-break headline and varied copy.
+    @ViewBuilder
+    private var breakButton: some View {
+        if breakOverdue {
+            Button(action: startBreath) {
+                VStack(spacing: 4) {
+                    if let secs = timeSinceLastBreak {
+                        Text(secs.hm)
+                            .font(.system(size: 40, weight: .heavy, design: .rounded))
+                            .monospacedDigit()
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                        Text("since your last break")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    Image(systemName: prompt.icon)
+                        .font(.title)
+                        .padding(.top, 2)
+                    Text(prompt.title)
+                        .font(.title3.weight(.bold))
+                    Text(prompt.subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 18)
+                .padding(.horizontal, 14)
+                .background(Color.blue.opacity(0.18))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
+            .buttonStyle(.plain)
+        } else {
+            Button(action: startBreath) {
+                HStack(spacing: 8) {
+                    Image(systemName: "figure.walk")
+                    Text("Take a break")
+                        .font(.callout.weight(.medium))
+                    Spacer()
+                    if let secs = timeSinceLastBreak {
+                        Text(secs.hm)
+                            .font(.caption)
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .foregroundStyle(.primary)
+                .padding(.vertical, 10)
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity)
+                .background(Color.blue.opacity(0.15))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     /// User tapped Break? — enter breath phase with timer at 0.
@@ -597,195 +638,50 @@ private struct BreakPrompt {
     static func random() -> BreakPrompt { all.randomElement() ?? all[0] }
 }
 
+/// The standalone running-break panel: just the "On break" counter and Done.
+/// Shown for auto-started breaks (waking from a short sleep, the menu's quick
+/// break). The decision-time break flow (take a break / keep working / switch)
+/// now lives inside the work check-in (`PromptContentView`).
 private struct BreathContentView: View {
-    let timeSinceLastBreak: TimeInterval?
-    /// The task running when the prompt appeared, if any. When set, the intro
-    /// offers "Keep working on X" so the break decision is a single prompt
-    /// instead of breath → separate "what are you working on?" picker.
-    let currentLabel: String?
-    /// nil → show the OK/Skip intro gate. Non-nil → skip the gate and start
-    /// the timer counting from this date (use a past date to pre-seed elapsed).
-    let autoStartAt: Date?
+    /// When the break started — elapsed counts up from here. A past date
+    /// pre-rolls elapsed (e.g. backdated to when the Mac went to sleep).
+    let startAt: Date
     let onDone: () -> Void
-    let onSkip: () -> Void
-    /// User chose to stay on the current task — dismiss without a follow-up picker.
-    let onKeepWorking: () -> Void
-    /// User wants neither a break nor the current task — open the label picker
-    /// so they can switch to something else.
-    let onSwitchTask: () -> Void
     let onStart: () -> Void
     let onSizeChange: (CGSize) -> Void
 
-    @State private var startedAt: Date?
     @State private var now: Date = Date()
     @State private var ticker: Task<Void, Never>?
-    /// Idle timer for the intro gate — auto-starts the break if the user
-    /// doesn't engage, same pattern as the confirm view's countdown ring.
-    @State private var idleTask: Task<Void, Never>?
-    /// Picked once when this view instance appears (a fresh instance is built
-    /// for every prompt), so each break nudge shows a different message.
-    @State private var prompt = BreakPrompt.random()
-    private let idleCountdownSeconds: TimeInterval = 30
+    @State private var started = false
 
-    private var hasStarted: Bool { startedAt != nil }
-    private var elapsed: TimeInterval {
-        guard let s = startedAt else { return 0 }
-        return now.timeIntervalSince(s)
-    }
+    private var elapsed: TimeInterval { max(0, now.timeIntervalSince(startAt)) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Image(systemName: "wind").foregroundStyle(.blue)
-                Text(hasStarted ? "On break" : "Time for a break?")
-                    .font(.headline)
+                Text("On break").font(.headline)
                 Spacer()
             }
             .background(WindowDragArea())
 
-            if hasStarted {
-                BreathTimer(elapsed: elapsed, onDone: onDone)
-            } else {
-                // Big, glanceable headline: how long since the last real break.
-                // That number is the whole reason for the nudge, so make it the
-                // focal point instead of a footnote.
-                if let secs = timeSinceLastBreak {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(secs.hm)
-                            .font(.system(size: 40, weight: .heavy, design: .rounded))
-                            .monospacedDigit()
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.6)
-                        Text("since your last break")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.bottom, 4)
-                }
-
-                // The break is the one big, obvious action. Its copy varies each
-                // time (see `prompt`) so the nudge reads as a different attempt
-                // rather than the same nag every 15 minutes.
-                Button { startBreath() } label: {
-                    VStack(spacing: 4) {
-                        Image(systemName: prompt.icon)
-                            .font(.title)
-                        Text(prompt.title)
-                            .font(.title3.weight(.bold))
-                        Text(prompt.subtitle)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    // Match the on-break counter: primary text (white in dark
-                    // mode) on the translucent-blue fill, rather than blue-on-blue.
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 18)
-                    .padding(.horizontal, 14)
-                    .background(Color.blue.opacity(0.18))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.defaultAction)
-
-                if let label = currentLabel {
-                    // Quiet secondary: stay on the current task.
-                    quietRow {
-                        Circle().fill(Color.green).frame(width: 6, height: 6)
-                        Text("Keep working on \(label)").lineLimit(1)
-                        Spacer()
-                    } action: {
-                        cancelIdleTimer()
-                        onKeepWorking()
-                    }
-
-                    // Quiet tertiary: switch to a different task.
-                    quietRow {
-                        Image(systemName: "arrow.left.arrow.right").font(.caption)
-                        Text("Work on something else").lineLimit(1)
-                        Spacer()
-                    } action: {
-                        cancelIdleTimer()
-                        onSwitchTask()
-                    }
-                } else {
-                    quietRow {
-                        Text("Not now")
-                        Spacer()
-                    } action: {
-                        cancelIdleTimer()
-                        onSkip()
-                    }
-                }
-            }
+            BreathTimer(elapsed: elapsed, onDone: onDone)
         }
         .panelContainer(width: 260, onSizeChange: onSizeChange)
         .onAppear {
-            if let at = autoStartAt, startedAt == nil {
-                startBreath(at: at)
-            } else if startedAt == nil {
-                startIdleTimer()
-            }
-        }
-        .onDisappear {
+            now = Date()
+            guard !started else { return }
+            started = true
+            onStart()
             ticker?.cancel()
-            cancelIdleTimer()
-        }
-    }
-
-    /// A low-key secondary action row: small, secondary-colored, full-width,
-    /// no fill. Keeps "Take a break" the only visually loud choice.
-    @ViewBuilder
-    private func quietRow<Content: View>(
-        @ViewBuilder _ content: () -> Content,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 6) { content() }
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .padding(.vertical, 8)
-                .padding(.horizontal, 12)
-                .frame(maxWidth: .infinity)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func startBreath(at: Date = Date()) {
-        cancelIdleTimer()
-        startedAt = at
-        now = Date()
-        onStart()
-        ticker?.cancel()
-        ticker = Task {
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
-                if Task.isCancelled { break }
-                now = Date()
+            ticker = Task { @MainActor in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(1))
+                    if Task.isCancelled { break }
+                    now = Date()
+                }
             }
         }
-    }
-
-    /// If the user doesn't engage with the break offer within 30s, never force
-    /// a break — whether or not a task is running, quietly stand down and let
-    /// the cycle reschedule. A genuine walk-away is still caught by the idle
-    /// watchdog (and an auto-started break, like waking from sleep, self-corrects
-    /// the moment real input resumes).
-    private func startIdleTimer() {
-        idleTask?.cancel()
-        idleTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(idleCountdownSeconds))
-            if Task.isCancelled { return }
-            onKeepWorking()
-        }
-    }
-
-    private func cancelIdleTimer() {
-        idleTask?.cancel()
-        idleTask = nil
+        .onDisappear { ticker?.cancel() }
     }
 }

@@ -114,49 +114,26 @@ final class Nudger {
     /// working — there's nothing to stand up from, so fall through to the work
     /// prompt (which opens the picker if nothing's running).
     private func tickPrompt() {
-        if let sinceBreak = tracker?.timeSinceLastBreak, sinceBreak >= standUpThreshold {
-            showBreath(autoStartAt: nil)
-        } else {
-            showWorkPrompt()
-        }
+        // Always the same check-in interface; `showWorkPrompt` grows the break
+        // button on its own once a stand-up is overdue — no separate dialog.
+        showWorkPrompt()
     }
 
-    /// Show the breath panel. `autoStartAt` non-nil skips the intro gate and
-    /// starts the timer counting from that date (use `Date()` for now, or an
-    /// earlier date to pre-seed elapsed).
-    func showBreath(autoStartAt: Date?, autoStarted: Bool = false) {
-        guard let tracker else { return }
+    /// Show the standalone running-break timer, counting from `startAt` (use
+    /// `Date()` for now, or an earlier date to pre-seed elapsed — e.g. backdated
+    /// to when the Mac fell asleep). Used only for auto-started breaks; the
+    /// decision-time break flow lives inside the work check-in.
+    func showBreath(autoStartAt startAt: Date, autoStarted: Bool = false) {
+        guard tracker != nil else { return }
         promptPanel.showBreath(
-            timeSinceLastBreak: tracker.timeSinceLastBreak,
-            currentLabel: runningLabel,
-            autoStartAt: autoStartAt,
-            onResult: { [weak self] done in
+            startAt: startAt,
+            onDone: { [weak self] in
                 guard let self else { return }
                 self.onBreak = false
-                self.tracker?.logBreath(done: done)
-                // Break finished, or skipped with nothing running → ask what's next.
+                self.breakWasAutoStarted = false
+                self.tracker?.logBreath(done: true)
+                // Break finished → ask what's next and re-anchor the cycle.
                 self.showWorkPrompt()
-                self.scheduleCycle()
-            },
-            onKeepWorking: { [weak self] in
-                guard let self else { return }
-                // Combined prompt: user chose to stay on the current task. Keep
-                // it running, no follow-up "what are you working on?" picker —
-                // just reschedule the next cycle.
-                self.onBreak = false
-                self.tracker?.logBreath(done: false)
-                self.scheduleCycle()
-            },
-            onSwitchTask: { [weak self] in
-                guard let self else { return }
-                // User wants neither a break nor the current task. Skip the
-                // break and open the picker directly so they can switch tasks;
-                // the running task keeps going until they choose a new label.
-                self.onBreak = false
-                self.tracker?.logBreath(done: false)
-                // Pull focus to the picker — the user asked to switch, so let
-                // them type a label and hit Return immediately, then carry on.
-                self.showWorkPrompt(startInPicker: true, focusForTyping: true)
                 self.scheduleCycle()
             },
             onBreakStart: { [weak self] in
@@ -167,8 +144,9 @@ final class Nudger {
         )
     }
 
-    private func showWorkPrompt(startInPicker: Bool = false, focusForTyping: Bool = false) {
+    private func showWorkPrompt(startInPicker: Bool = false) {
         guard let tracker, !onBreak else { return }
+        let breakOverdue = (tracker.timeSinceLastBreak ?? 0) >= standUpThreshold
         promptPanel.show(
             tracker: tracker,
             labels: tracker.labelsByRecency(),
@@ -176,7 +154,7 @@ final class Nudger {
             currentLabel: runningLabel,
             timeSinceLastBreak: tracker.timeSinceLastBreak,
             startInPicker: startInPicker,
-            makeKey: focusForTyping,
+            breakOverdue: breakOverdue,
             onBreath: { [weak self] done in
                 guard let self else { return }
                 self.onBreak = false
