@@ -170,7 +170,16 @@ final class PromptPanel {
             p.setFrameOrigin(NSPoint(x: x, y: y))
         }
 
-        p.contentView = NSHostingView(rootView: content)
+        let host = NSHostingView(rootView: content)
+        // CRITICAL: we size the panel ourselves (onSizeChange → applyContentSize),
+        // so stop the hosting view from also driving the window's content-size
+        // extrema. That automatic path re-invalidates the window's constraints
+        // mid-update; AppKit then throws from -[NSWindow _postWindowNeedsUpdate
+        // Constraints] and NSApplication turns it into a hard crash ("Tim Time
+        // quit unexpectedly"). Empty options disable it — content layout is
+        // unaffected since we set the frame explicitly.
+        host.sizingOptions = []
+        p.contentView = host
         // Normal nudges never steal focus from the user's current work; the
         // picker pulls focus on demand via makeCurrentPanelKey (the ✗ switch).
         p.orderFrontRegardless()

@@ -142,7 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         lastRequestedMenuSize = initialSize
         menuPanel = p
 
-        p.contentView = NSHostingView(rootView: MenuView(
+        let host = NSHostingView(rootView: MenuView(
             tracker: tracker,
             onDismiss: { [weak self] in self?.closeMenu() },
             welcomeBack: welcomeBack,
@@ -151,6 +151,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.positionMenu(panel, size: size)
             }
         ))
+        // Same crash-guard as the prompt panel: we size this panel via
+        // onSizeChange, so stop the hosting view from driving the window's
+        // content-size extrema — that reentrant path throws from -[NSWindow
+        // _postWindowNeedsUpdateConstraints] and crashes the app.
+        host.sizingOptions = []
+        p.contentView = host
         p.orderFrontRegardless()
         if !welcomeBack {
             // Manual opens activate so the textfield takes keystrokes. Auto-opens
