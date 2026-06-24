@@ -8,6 +8,24 @@
     <description>Updates for TimTime — a minimalist macOS menu bar time tracker.</description>
     <language>en</language>
     <item>
+      <title>Version 1.0.4</title>
+      <pubDate>Wed, 24 Jun 2026 14:25:43 +0000</pubDate>
+      <sparkle:version>8</sparkle:version>
+      <sparkle:shortVersionString>1.0.4</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+        <h3>TimTime 1.0.4</h3>
+        <ul>
+          <li><strong>Fixed</strong> a crash that could still quit the app during check-in prompts — 1.0.3 addressed only part of the cause; this resolves the rest.</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/timmayyyy/timtime/releases/download/v1.0.4/TimTime.dmg"
+        sparkle:edSignature="TiDgmLrNvRVRsy55J0Rh92j/n5VnPvGhWumqqyFH66SY4j0q5HQFz30seyoGFUz9m4Y8jJz0nnM6R/gflmG5AQ=="
+        length="1634552"
+        type="application/octet-stream" />
+    </item>
+    <item>
       <title>Version 1.0.3</title>
       <pubDate>Wed, 24 Jun 2026 09:29:48 +0000</pubDate>
       <sparkle:version>7</sparkle:version>
