@@ -8,6 +8,27 @@
     <description>Updates for TimTime — a minimalist macOS menu bar time tracker.</description>
     <language>en</language>
     <item>
+      <title>Version 1.0.3</title>
+      <pubDate>Wed, 24 Jun 2026 09:29:48 +0000</pubDate>
+      <sparkle:version>7</sparkle:version>
+      <sparkle:shortVersionString>1.0.3</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+        <h3>TimTime 1.0.3</h3>
+        <ul>
+          <li><strong>Fixed</strong> a crash that could quit the app unexpectedly during check-in prompts.</li>
+          <li>Stand-up reminders now repeat every 15 minutes once you're overdue for a break, instead of nudging just once.</li>
+          <li>The break prompt is now part of the same check-in — one interface, with a big "time since last break" and varied encouragement to step away.</li>
+          <li>New: a "Take a break" button pinned at the bottom of the menu, always in the same place.</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/timmayyyy/timtime/releases/download/v1.0.3/TimTime.dmg"
+        sparkle:edSignature="lGVOva/B/1WcZa/i9ovRkLDKy1VtfnyJLOEdc4srAflk9KMGL863inSJ9gtx1//Cf/MVrfdYkQPIRFHCukdkDw=="
+        length="1631827"
+        type="application/octet-stream" />
+    </item>
+    <item>
       <title>Version 1.0.2</title>
       <pubDate>Sun, 21 Jun 2026 17:02:21 +0000</pubDate>
       <sparkle:version>6</sparkle:version>
