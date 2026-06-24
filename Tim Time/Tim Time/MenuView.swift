@@ -98,27 +98,14 @@ struct MenuView: View {
                         .transition(.opacity)
                     Spacer()
 
-                    if isToday && tracker.isRunning {
-                        Text("Break?")
-                            .font(.callout.weight(.semibold))
-                            .foregroundStyle(Color.blue)
-                            .frame(height: 28)
-                            .padding(.horizontal, 6)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                onDismiss()
-                                DispatchQueue.main.async {
-                                    tracker.takeQuickBreak()
-                                }
-                            }
-                    } else {
-                        Image(systemName: "chevron.right")
-                            .font(.body.weight(.medium))
-                            .frame(width: 36, height: 28)
-                            .contentShape(Rectangle())
-                            .opacity(isToday ? 0.25 : 1)
-                            .onTapGesture { if !isToday { shiftDay(1) } }
-                    }
+                    // Pure day-forward nav (greyed on today). The break action
+                    // now lives in a fixed spot at the bottom, not up here.
+                    Image(systemName: "chevron.right")
+                        .font(.body.weight(.medium))
+                        .frame(width: 36, height: 28)
+                        .contentShape(Rectangle())
+                        .opacity(isToday ? 0.25 : 1)
+                        .onTapGesture { if !isToday { shiftDay(1) } }
                 }
 
                 DayOverview(tracker: tracker, date: selectedDate, highlightedLabel: hoveredLabel)
@@ -158,6 +145,34 @@ struct MenuView: View {
                 if selection.count == 2 {
                     mergeBar(a: selection[0], b: selection[1])
                 }
+            }
+
+            // Take a break — pinned here so there's always one consistent place
+            // to step away, independent of the timed check-in nudges. Same
+            // styling as the prompt's break button; shows time since last break.
+            if isToday {
+                Button {
+                    onDismiss()
+                    DispatchQueue.main.async { tracker.takeQuickBreak() }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "figure.walk")
+                        Text("Take a break").font(.callout.weight(.medium))
+                        Spacer()
+                        if let secs = tracker.timeSinceLastBreak {
+                            Text(secs.hm)
+                                .font(.caption).monospacedDigit()
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .foregroundStyle(.primary)
+                    .padding(.vertical, 9)
+                    .padding(.horizontal, 12)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.blue.opacity(0.15))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
             }
 
             // Footer
