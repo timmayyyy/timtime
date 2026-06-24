@@ -180,15 +180,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if abs(size.width - lastRequestedMenuSize.width) < 0.5
             && abs(size.height - lastRequestedMenuSize.height) < 0.5 { return }
         lastRequestedMenuSize = size
-        let screen = statusItem?.button?.window?.screen ?? NSScreen.main ?? NSScreen.screens.first
-        guard let f = screen?.visibleFrame else { return }
-        let margin: CGFloat = 8
-        let cur = p.frame
-        var x = cur.minX
-        var y = cur.maxY - size.height
-        x = max(f.minX + margin, min(f.maxX - size.width - margin, x))
-        y = max(f.minY + margin, min(f.maxY - size.height - margin, y))
-        p.setFrame(NSRect(origin: NSPoint(x: x, y: y), size: size), display: true, animate: false)
+        // CRITICAL: defer out of SwiftUI's layout pass (see applyContentSize in
+        // PromptView). A synchronous setFrame from .onPreferenceChange reenters
+        // AppKit window layout during the CA commit and aborts the app.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.menuPanel === p else { return }
+            let screen = self.statusItem?.button?.window?.screen ?? NSScreen.main ?? NSScreen.screens.first
+            guard let f = screen?.visibleFrame else { return }
+            let margin: CGFloat = 8
+            let cur = p.frame
+            var x = cur.minX
+            var y = cur.maxY - size.height
+            x = max(f.minX + margin, min(f.maxX - size.width - margin, x))
+            y = max(f.minY + margin, min(f.maxY - size.height - margin, y))
+            p.setFrame(NSRect(origin: NSPoint(x: x, y: y), size: size), display: true, animate: false)
+        }
     }
 
     private func closeMenu() {

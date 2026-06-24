@@ -82,19 +82,28 @@ final class PromptPanel {
     /// is the source of the visible transition — stacking AppKit's window
     /// resize on top causes the slow-cascading-grow effect.
     private func applyContentSize(_ size: CGSize) {
-        guard let p = panel, size.width > 0, size.height > 0 else { return }
-        let cur = p.frame
-        if abs(cur.width - size.width) < 0.5 && abs(cur.height - size.height) < 0.5 { return }
-        let screen = NSScreen.main ?? NSScreen.screens.first
-        let f = screen?.visibleFrame ?? cur
-        let margin: CGFloat = 8
-        // Keep panel where the user dragged it; just anchor the top edge so a
-        // height change grows downward rather than shifting the header.
-        var x = cur.minX
-        var y = cur.maxY - size.height
-        x = max(f.minX + margin, min(f.maxX - size.width - margin, x))
-        y = max(f.minY + margin, min(f.maxY - size.height - margin, y))
-        p.setFrame(NSRect(origin: NSPoint(x: x, y: y), size: size), display: true, animate: false)
+        guard size.width > 0, size.height > 0 else { return }
+        // CRITICAL: defer the resize out of SwiftUI's layout pass. This is
+        // invoked from .onPreferenceChange, which runs inside the window's
+        // display cycle (the CA-transaction commit). Calling setFrame(display:)
+        // synchronously there reenters AppKit's window layout, which throws an
+        // exception mid-commit and aborts the app. Hopping to the next runloop
+        // turn moves the resize into its own clean display cycle.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let p = self.panel else { return }
+            let cur = p.frame
+            if abs(cur.width - size.width) < 0.5 && abs(cur.height - size.height) < 0.5 { return }
+            let screen = NSScreen.main ?? NSScreen.screens.first
+            let f = screen?.visibleFrame ?? cur
+            let margin: CGFloat = 8
+            // Keep panel where the user dragged it; just anchor the top edge so a
+            // height change grows downward rather than shifting the header.
+            var x = cur.minX
+            var y = cur.maxY - size.height
+            x = max(f.minX + margin, min(f.maxX - size.width - margin, x))
+            y = max(f.minY + margin, min(f.maxY - size.height - margin, y))
+            p.setFrame(NSRect(origin: NSPoint(x: x, y: y), size: size), display: true, animate: false)
+        }
     }
 
     /// Standalone running-break timer — used for auto-started breaks (waking
