@@ -6,11 +6,13 @@ Minimalist macOS menu bar time tracker. SwiftUI, signed + notarized, Sparkle aut
 
 ```
 Tim Time/Tim Time/          ← Xcode source root (synced folder)
-  TimTimeApp.swift          ← @main App, MenuBarExtra scene, Sparkle updater
-  MenuView.swift            ← Main popover: day switcher, input, breakdown, weekly chart
-  Tracker.swift             ← Core state: start/stop, entries, sandbox-migration
+  TimTimeApp.swift          ← @main App (empty Settings scene), AppDelegate: NSStatusItem + menu FloatingPanel, Sparkle updater
+  MenuView.swift            ← Main popover content: day switcher, input, breakdown, weekly chart, pinned break button
+  Tracker.swift             ← Core state: start/stop, entries, sandbox-migration, timeSinceLastBreak/isBreakOverdue
   Nudger.swift              ← Single 15/15/45 cycle: work check at 15+30, breath at 45
-  PromptView.swift          ← Floating NSPanel for check-in prompt
+  PromptView.swift          ← FloatingPanel (NSPanel subclass) + PromptPanel controller for the check-in prompt
+  PanelChrome.swift         ← Shared panel look (material/clip/border) + FixedSizeHostingView (the crash fix, see below)
+  BreakButton.swift         ← Shared "Take a break" affordance (quiet one-liner ↔ prominent overdue card)
   Models.swift              ← TimeEntry, LabelTotal, TimeInterval formatters
   TimTime.entitlements      ← Sandbox OFF, network client ON (for Sparkle)
   Assets.xcassets           ← AppIcon (full-bleed, system-rounded), MenuBarIcon (template, monochrome)
@@ -21,7 +23,9 @@ Tim Time/scripts/release.sh ← archive → notarize → staple → DMG → Spar
 
 ## Key design decisions
 
-- **Menu bar only** — `LSUIElement = YES`, no Dock icon, pure `MenuBarExtra(.window)`
+- **Menu bar only** — `LSUIElement = YES`, no Dock icon. NOT `MenuBarExtra`: the SwiftUI scene is just `Settings { EmptyView() }`; `AppDelegate` builds an `NSStatusItem` and shows both surfaces (menu + check-in prompt) as custom borderless `FloatingPanel`s (NSPanel subclass) pinned to the screen's top-right. Done in AppKit for full control over left-click (panel) vs right-click (NSMenu) and right-edge pinning.
+- **Panels size themselves; the hosting view must NOT** — ⚠️ macOS 26 crash class. An `NSHostingView` whose SwiftUI content changes size resizes its *window* from `-windowDidLayout` (via private `updateAnimatedWindowSize`), **inside** the CA-commit display cycle. That re-enters `-[NSWindow _postWindowNeedsUpdateConstraints]` and AppKit aborts the app ("Tim Time quit unexpectedly"). `sizingOptions = []` does NOT stop it (it only governs window min/max extrema — both build 8 and a container-wrapped subview still crashed). **Fix:** host content in `FixedSizeHostingView` (PanelChrome.swift), which (1) overrides `windowDidLayout` to a no-op (kills the auto-resize) and (2) reports the live content size via `onContentSize` each `layout()`. The owner then resizes the panel on the **next runloop turn** (`DispatchQueue.main.async` in `PromptPanel.applyContentSize` / `AppDelegate.positionMenu`) so the `setFrame` never reenters the layout pass. **Measuring the content is the catch:** with `sizingOptions = []` the SwiftUI `GeometryReader`/`PanelSizeKey` preference, `host.fittingSize`, and `host.intrinsicContentSize` all report **0×0**. Working measurements: `host.fittingSize` with `sizingOptions = [.intrinsicContentSize]` (what we use), or `NSHostingController.sizeThatFits(in:)`. The sizing setters guard against 0×0 so a stray 0 can't collapse the window.
+- **One break affordance** — `BreakButton` (BreakButton.swift) is the single "Take a break" control shared by the check-in prompt and the pinned menu button. It escalates from a quiet one-liner to the prominent card on one shared rule: `Tracker.isBreakOverdue` (≥ `Tracker.standUpThreshold` = 45m), the same threshold the Nudger uses.
 - **Append-only** — entries are never deleted, only added
 - **Switch-to-start** — typing a label or clicking one auto-closes the current entry and starts a new one
 - **Day clipping** — entries spanning midnight are clipped to day boundaries for accurate daily/weekly totals

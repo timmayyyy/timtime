@@ -402,6 +402,15 @@ final class Tracker: ObservableObject {
         return reference.map { now.timeIntervalSince($0) }
     }
 
+    /// Time since the last real break past which a stand-up nudge is "overdue".
+    /// Single source of truth shared by the Nudger's cadence and every
+    /// "Take a break" affordance, so the menu and the check-in escalate to the
+    /// prominent break card on exactly the same rule.
+    static let standUpThreshold: TimeInterval = 45 * 60
+
+    /// True once the user has gone `standUpThreshold` without a real break.
+    var isBreakOverdue: Bool { (timeSinceLastBreak ?? 0) >= Self.standUpThreshold }
+
     /// Quick-break flow — opens the breath panel pre-started so the user goes
     /// straight to the timer + Done.
     func takeQuickBreak() {

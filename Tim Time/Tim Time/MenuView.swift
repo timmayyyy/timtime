@@ -28,6 +28,9 @@ struct MenuView: View {
     /// Same idea for the weekly view: hovering a bar lights up its slots in
     /// the week timeline above.
     @State private var hoveredWeekLabel: String?
+    /// Varied copy for the prominent (overdue) break card, picked once per menu
+    /// open so each nudge reads as a different attempt.
+    @State private var breakPrompt = BreakPrompt.random()
     @FocusState private var inputFocused: Bool
 
     private var isToday: Bool {
@@ -148,31 +151,18 @@ struct MenuView: View {
             }
 
             // Take a break — pinned here so there's always one consistent place
-            // to step away, independent of the timed check-in nudges. Same
-            // styling as the prompt's break button; shows time since last break.
+            // to step away, independent of the timed check-in nudges. Uses the
+            // shared BreakButton, so it escalates to the prominent card on the
+            // same rule as the check-in prompt (Tracker.isBreakOverdue).
             if isToday {
-                Button {
+                BreakButton(
+                    overdue: tracker.isBreakOverdue,
+                    timeSinceLastBreak: tracker.timeSinceLastBreak,
+                    prompt: breakPrompt
+                ) {
                     onDismiss()
                     DispatchQueue.main.async { tracker.takeQuickBreak() }
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "figure.walk")
-                        Text("Take a break").font(.callout.weight(.medium))
-                        Spacer()
-                        if let secs = tracker.timeSinceLastBreak {
-                            Text(secs.hm)
-                                .font(.caption).monospacedDigit()
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .foregroundStyle(.primary)
-                    .padding(.vertical, 9)
-                    .padding(.horizontal, 12)
-                    .frame(maxWidth: .infinity)
-                    .background(Color.blue.opacity(0.15))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
-                .buttonStyle(.plain)
             }
 
             // Footer

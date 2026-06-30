@@ -179,15 +179,13 @@ final class PromptPanel {
             p.setFrameOrigin(NSPoint(x: x, y: y))
         }
 
-        let host = NSHostingView(rootView: content)
-        // CRITICAL: we size the panel ourselves (onSizeChange → applyContentSize),
-        // so stop the hosting view from also driving the window's content-size
-        // extrema. That automatic path re-invalidates the window's constraints
-        // mid-update; AppKit then throws from -[NSWindow _postWindowNeedsUpdate
-        // Constraints] and NSApplication turns it into a hard crash ("Tim Time
-        // quit unexpectedly"). Empty options disable it — content layout is
-        // unaffected since we set the frame explicitly.
-        host.sizingOptions = []
+        // We own panel sizing: FixedSizeHostingView suppresses SwiftUI's own
+        // (crashing) window auto-resize and instead reports the live content's
+        // fitting size via onContentSize, which we apply deferred. The SwiftUI
+        // GeometryReader preference reports 0×0 here, so this is the real source.
+        let host = FixedSizeHostingView(rootView: content)
+        host.sizingOptions = [.intrinsicContentSize]
+        host.onContentSize = { [weak self] size in self?.applyContentSize(size) }
         p.contentView = host
         // Normal nudges never steal focus from the user's current work; the
         // picker pulls focus on demand via makeCurrentPanelKey (the ✗ switch).
@@ -425,62 +423,13 @@ private struct PromptContentView: View {
     /// The one break affordance, shared across confirm and picker. Small and
     /// quiet under the threshold; once a stand-up is overdue it grows into the
     /// prominent card with the big time-since-break headline and varied copy.
-    @ViewBuilder
     private var breakButton: some View {
-        if breakOverdue {
-            Button(action: startBreath) {
-                VStack(spacing: 4) {
-                    if let secs = timeSinceLastBreak {
-                        Text(secs.hm)
-                            .font(.system(size: 40, weight: .heavy, design: .rounded))
-                            .monospacedDigit()
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.6)
-                        Text("since your last break")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    Image(systemName: prompt.icon)
-                        .font(.title)
-                        .padding(.top, 2)
-                    Text(prompt.title)
-                        .font(.title3.weight(.bold))
-                    Text(prompt.subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-                .foregroundStyle(.primary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 18)
-                .padding(.horizontal, 14)
-                .background(Color.blue.opacity(0.18))
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-            }
-            .buttonStyle(.plain)
-        } else {
-            Button(action: startBreath) {
-                HStack(spacing: 8) {
-                    Image(systemName: "figure.walk")
-                    Text("Take a break")
-                        .font(.callout.weight(.medium))
-                    Spacer()
-                    if let secs = timeSinceLastBreak {
-                        Text(secs.hm)
-                            .font(.caption)
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .foregroundStyle(.primary)
-                .padding(.vertical, 10)
-                .padding(.horizontal, 12)
-                .frame(maxWidth: .infinity)
-                .background(Color.blue.opacity(0.15))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-            }
-            .buttonStyle(.plain)
-        }
+        BreakButton(
+            overdue: breakOverdue,
+            timeSinceLastBreak: timeSinceLastBreak,
+            prompt: prompt,
+            action: startBreath
+        )
     }
 
     /// User tapped Break? — enter breath phase with timer at 0.
@@ -632,28 +581,6 @@ private struct BreathTimer: View {
         .background(Color.blue.opacity(0.18))
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
-}
-
-/// One way of nudging the user to step away. A fresh one is picked each time
-/// the break prompt appears so the reminder reads as a different "attempt"
-/// rather than the same nag every 15 minutes.
-private struct BreakPrompt {
-    let icon: String
-    let title: String
-    let subtitle: String
-
-    static let all: [BreakPrompt] = [
-        BreakPrompt(icon: "figure.walk",        title: "Take a break",     subtitle: "Stand up and move for a few minutes"),
-        BreakPrompt(icon: "figure.flexibility", title: "Time to stretch",  subtitle: "Roll your shoulders, loosen your neck"),
-        BreakPrompt(icon: "eye",                title: "Rest your eyes",   subtitle: "Look at something 20 feet away for 20 seconds"),
-        BreakPrompt(icon: "figure.walk",        title: "Go for a wander",  subtitle: "A short walk resets your focus"),
-        BreakPrompt(icon: "wind",               title: "Take a breather",  subtitle: "A few slow breaths, then back to it"),
-        BreakPrompt(icon: "drop",               title: "Grab some water",  subtitle: "Hydrate and step away for a moment"),
-        BreakPrompt(icon: "figure.stand",       title: "Stand up",         subtitle: "Your back will thank you later"),
-        BreakPrompt(icon: "sun.max",            title: "Look outside",     subtitle: "Find a window and let your eyes relax"),
-    ]
-
-    static func random() -> BreakPrompt { all.randomElement() ?? all[0] }
 }
 
 /// The standalone running-break panel: just the "On break" counter and Done.

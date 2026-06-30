@@ -30,7 +30,7 @@ final class Nudger {
     /// break-or-keep-working prompt instead of a plain work check — and keeps
     /// showing it each tick until a break resets the clock. A firmer "stand up"
     /// nudge than the old once-per-cycle breath check.
-    private let standUpThreshold: TimeInterval = 45 * 60
+    private let standUpThreshold: TimeInterval = Tracker.standUpThreshold
 
     func start(tracker: Tracker) {
         self.tracker = tracker

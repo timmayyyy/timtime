@@ -142,7 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         lastRequestedMenuSize = initialSize
         menuPanel = p
 
-        let host = NSHostingView(rootView: MenuView(
+        let menuRoot = MenuView(
             tracker: tracker,
             onDismiss: { [weak self] in self?.closeMenu() },
             welcomeBack: welcomeBack,
@@ -150,12 +150,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self, let panel = self.menuPanel else { return }
                 self.positionMenu(panel, size: size)
             }
-        ))
-        // Same crash-guard as the prompt panel: we size this panel via
-        // onSizeChange, so stop the hosting view from driving the window's
-        // content-size extrema — that reentrant path throws from -[NSWindow
-        // _postWindowNeedsUpdateConstraints] and crashes the app.
-        host.sizingOptions = []
+        )
+        // Same approach as the prompt panel: FixedSizeHostingView suppresses
+        // SwiftUI's crashing window auto-resize and reports the live content's
+        // fitting size via onContentSize, which positionMenu applies deferred.
+        let host = FixedSizeHostingView(rootView: AnyView(menuRoot))
+        host.sizingOptions = [.intrinsicContentSize]
+        host.onContentSize = { [weak self] size in
+            guard let self, let panel = self.menuPanel else { return }
+            self.positionMenu(panel, size: size)
+        }
         p.contentView = host
         p.orderFrontRegardless()
         if !welcomeBack {
@@ -177,6 +181,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// dragged position (anchored by top edge so a height change grows down
     /// rather than shifting the header). Clamps every edge inside the screen.
     private func positionMenu(_ p: NSPanel, size: NSSize) {
+        // Ignore the SwiftUI GeometryReader's 0×0 reports — only real content
+        // sizes (from FixedSizeHostingView.onContentSize) should size the panel.
+        guard size.width > 0, size.height > 0 else { return }
         if abs(size.width - lastRequestedMenuSize.width) < 0.5
             && abs(size.height - lastRequestedMenuSize.height) < 0.5 { return }
         lastRequestedMenuSize = size

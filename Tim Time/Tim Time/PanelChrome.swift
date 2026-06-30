@@ -68,6 +68,41 @@ struct PanelSizeKey: PreferenceKey {
     }
 }
 
+/// Hosting view for our floating panels that (a) never lets SwiftUI auto-resize
+/// its window and (b) reports the *live* content's ideal size so the owner can
+/// size the panel itself, deferred and safely.
+///
+/// Why: on macOS 26, NSHostingView's `-windowDidLayout` calls the private
+/// `updateAnimatedWindowSize`, which resizes the window *inside* the CA-commit
+/// display cycle and re-enters `-[NSWindow _postWindowNeedsUpdateConstraints]`,
+/// which AppKit turns into a hard crash. `sizingOptions = []` does not suppress
+/// it. We suppress the observer itself, and recover sizing via `onContentSize`:
+/// every layout pass reports `fittingSize` (which is real once `sizingOptions`
+/// includes `.intrinsicContentSize`), and the owner resizes the panel on the
+/// next runloop turn — out of the layout pass, so it can never reenter.
+///
+/// NOTE: deliberately NON-generic (`NSHostingView<AnyView>`, not a generic
+/// subclass). A generic subclass of the generic `NSHostingView<Content>` crashes
+/// the Swift Release optimizer ("EarlyPerfInliner" /
+/// isCallerAndCalleeLayoutConstraintsCompatible on the subclass deinit) — Debug
+/// builds are fine, archive builds abort. Both panels already type-erase to
+/// `AnyView`, so pinning Content here costs nothing.
+final class FixedSizeHostingView: NSHostingView<AnyView> {
+    /// Reports the content's current fitting size on each layout pass.
+    var onContentSize: ((CGSize) -> Void)?
+
+    @objc func windowDidLayout() {
+        // No-op on purpose — see the type doc. Do NOT chain to super; that is
+        // the automatic window-resize path that crashes.
+    }
+
+    override func layout() {
+        super.layout()
+        let s = fittingSize
+        if s.width > 0, s.height > 0 { onContentSize?(s) }
+    }
+}
+
 /// SwiftUI background that lets the user drag the containing NSWindow. Apply
 /// to header areas — taps on overlaid SwiftUI controls (chevrons, buttons)
 /// still hit their gestures first; only un-handled clicks fall through here.
