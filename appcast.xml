@@ -8,6 +8,25 @@
     <description>Updates for TimTime — a minimalist macOS menu bar time tracker.</description>
     <language>en</language>
     <item>
+      <title>Version 1.0.5</title>
+      <pubDate>Tue, 30 Jun 2026 04:24:13 +0000</pubDate>
+      <sparkle:version>9</sparkle:version>
+      <sparkle:shortVersionString>1.0.5</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+        <h3>TimTime 1.0.5</h3>
+        <ul>
+          <li><strong>Fixed</strong> a crash that could quit the app when the check-in prompt or menu changed size (notably on macOS 26 Tahoe).</li>
+          <li>The "Take a break" button now looks the same everywhere — quiet by default, and grows into the full reminder once you're overdue, whether you open it from the menu or a check-in.</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/timmayyyy/timtime/releases/download/v1.0.5/TimTime.dmg"
+        sparkle:edSignature="BAq9/TGZR8eME4mo6Fe3rkf8y7P7Y958Prvdd6S9jExV8khcNzxidImyVSEIzqrPzpJCl+wAirLCCclfBX9SDQ=="
+        length="1634640"
+        type="application/octet-stream" />
+    </item>
+    <item>
       <title>Version 1.0.4</title>
       <pubDate>Wed, 24 Jun 2026 14:25:43 +0000</pubDate>
       <sparkle:version>8</sparkle:version>
