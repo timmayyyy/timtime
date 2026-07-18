@@ -8,6 +8,29 @@
     <description>Updates for TimTime — a minimalist macOS menu bar time tracker.</description>
     <language>en</language>
     <item>
+      <title>Version 1.1.0</title>
+      <pubDate>Sat, 18 Jul 2026 12:56:51 +0000</pubDate>
+      <sparkle:version>10</sparkle:version>
+      <sparkle:shortVersionString>1.1.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+        <h3>TimTime 1.1.0</h3>
+        <ul>
+          <li><strong>New — Colors.</strong> Give your labels colors and group your time into categories. Shift-click one or more labels and pick a color; name your colors (e.g. "Personal", "Business").</li>
+          <li><strong>New — By color.</strong> The week and month views show how your time splits across your color categories, with percentages.</li>
+          <li><strong>New — Month view.</strong> A compact day-by-day timeline for the whole month.</li>
+          <li>Timelines and breakdowns are color-coded — hover a label to spotlight its time and dim the rest.</li>
+          <li>Merge several labels at once by shift-selecting them.</li>
+          <li>The menu now caps at 80% of your screen height and scrolls, so long label lists stay usable.</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/timmayyyy/timtime/releases/download/v1.1.0/TimTime.dmg"
+        sparkle:edSignature="aB17tk7t7jI734JfOJo8Z6GFHMpMK2DaOYThvfUEuyY/x02jUhZlmBBdMSsW2LpOU1KBBGibHwZQSsuyYTevBw=="
+        length="1740411"
+        type="application/octet-stream" />
+    </item>
+    <item>
       <title>Version 1.0.5</title>
       <pubDate>Tue, 30 Jun 2026 04:24:13 +0000</pubDate>
       <sparkle:version>9</sparkle:version>
