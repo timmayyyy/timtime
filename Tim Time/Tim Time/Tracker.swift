@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import SwiftUI
 import AppKit
 import IOKit
 import IOKit.pwr_mgt
@@ -15,6 +16,11 @@ final class Tracker: ObservableObject {
     /// Label names the user has archived. Hidden from picker/breakdown by
     /// default; entries are kept intact so totals & timeline stay accurate.
     @Published private(set) var archivedLabels: Set<String> = []
+    /// User-managed color categories (persisted to palette.json). Seeded on
+    /// first launch; the first entry is the default for unassigned labels.
+    @Published private(set) var colorCategories: [ColorCategory] = []
+    /// label → category id (persisted to labelColors.json). Absent = default.
+    @Published private(set) var labelColorIDs: [String: UUID] = [:]
 
     private var tickTask: Task<Void, Never>?
     /// Always-on poll that watches system input idle so a task left running
@@ -45,6 +51,8 @@ final class Tracker: ObservableObject {
     /// (Xcode Stop, force quit, crash) loses at most ~1 min.
     private let runningStoreURL: URL
     private let archivedStoreURL: URL
+    private let paletteStoreURL: URL
+    private let labelColorStoreURL: URL
     private let nudger = Nudger()
     /// Hook for the wake-from-sleep handler — set by AppDelegate so we can
     /// pop the menu open instead of a separate "welcome back" panel.
@@ -80,6 +88,8 @@ final class Tracker: ObservableObject {
         self.breathStoreURL = dir.appendingPathComponent("breaths.json")
         self.runningStoreURL = dir.appendingPathComponent("running.json")
         self.archivedStoreURL = dir.appendingPathComponent("archived.json")
+        self.paletteStoreURL = dir.appendingPathComponent("palette.json")
+        self.labelColorStoreURL = dir.appendingPathComponent("labelColors.json")
         Self.migrateFromContainerIfNeeded(to: dir)
         load()
         // Recover any in-progress entry left behind by a hard kill before we start
@@ -87,6 +97,7 @@ final class Tracker: ObservableObject {
         restoreRunningIfAny()
         loadBreaths()
         loadArchived()
+        loadColors()
         nudger.start(tracker: self)
         observeSleep()
         startIdleWatchdog()
@@ -109,7 +120,8 @@ final class Tracker: ObservableObject {
             "~/Library/Containers/AI-Ascend.Tim-Time/Data/Library/Application Support/TimTime"
         ).expandingTildeInPath)
         guard fm.fileExists(atPath: containerDir.path) else { return }
-        for file in ["entries.json", "breaths.json", "running.json", "archived.json"] {
+        for file in ["entries.json", "breaths.json", "running.json", "archived.json",
+                     "palette.json", "labelColors.json"] {
             let src = containerDir.appendingPathComponent(file)
             let dst = newDir.appendingPathComponent(file)
             guard fm.fileExists(atPath: src.path),
@@ -424,7 +436,10 @@ final class Tracker: ObservableObject {
         return (todays.filter(\.done).count, todays.count)
     }
 
-    /// Rename every entry with `from` to `into`. If `from` is running, switch the live label without breaking the running segment.
+    /// Fold `source` into an existing `target` label: rewrite every entry, switch
+    /// the live label if needed, and carry side-store state so `source` fully
+    /// ceases to exist (archived flag and color follow to `target` if `target`
+    /// had none of its own). Used by the shift-select merge UI.
     func mergeLabels(from source: String, into target: String) {
         let trimmedTarget = target.trimmingCharacters(in: .whitespaces)
         guard !trimmedTarget.isEmpty, source != trimmedTarget else { return }
@@ -434,7 +449,120 @@ final class Tracker: ObservableObject {
         if isRunning && currentLabel == source {
             currentLabel = trimmedTarget
         }
+        // Clear the disappearing source label out of the side stores so it can't
+        // dangle. The target keeps its own archived/color state; if it had none,
+        // it inherits the source's color rather than silently losing it.
+        archivedLabels.remove(source)
+        if let srcColor = labelColorIDs.removeValue(forKey: source),
+           labelColorIDs[trimmedTarget] == nil {
+            labelColorIDs[trimmedTarget] = srcColor
+        }
         save()
+        saveArchived()
+        saveLabelColors()
+        saveRunningCheckpoint()
+    }
+
+    /// Outcome of a `renameLabel` attempt, so the UI can show a precise message.
+    enum RenameResult: Equatable {
+        case renamed
+        case unchanged      // new name equals the old name (nothing to do)
+        case empty          // blank / whitespace-only name
+        case collision      // a different label already uses that name (incl. archived)
+    }
+
+    /// Rename `source` to a brand-new name. Unlike merge, this REFUSES to collide
+    /// with any existing label (active or archived) — renaming is never an
+    /// implicit merge. Carries the archived flag, color assignment, and live
+    /// running-label across the string change so no side-store is orphaned.
+    @discardableResult
+    func renameLabel(from source: String, to newName: String) -> RenameResult {
+        let target = newName.trimmingCharacters(in: .whitespaces)
+        guard !target.isEmpty else { return .empty }
+        if target == source { return .unchanged }
+        // A collision is any OTHER existing label — exact-string different from
+        // `source` — whose name matches `target` case-insensitively, across
+        // entries, the live label, archived names, and colored names. Comparing
+        // on exact identity (`!= source`) means a case-only self-rename is still
+        // allowed, while renaming onto a case-variant sibling (e.g. "Work" → an
+        // already-existing "work") is refused rather than silently merged.
+        var known = Set(entries.map(\.label))
+        if isRunning, !currentLabel.isEmpty { known.insert(currentLabel) }
+        known.formUnion(archivedLabels)
+        known.formUnion(labelColorIDs.keys)
+        let targetLower = target.lowercased()
+        if known.contains(where: { $0 != source && $0.lowercased() == targetLower }) {
+            return .collision
+        }
+
+        for i in entries.indices where entries[i].label == source {
+            entries[i].label = target
+        }
+        if isRunning && currentLabel == source {
+            currentLabel = target
+        }
+        if archivedLabels.remove(source) != nil {
+            archivedLabels.insert(target)
+        }
+        if let colorID = labelColorIDs.removeValue(forKey: source) {
+            labelColorIDs[target] = colorID
+        }
+        save()
+        saveArchived()
+        saveLabelColors()
+        saveRunningCheckpoint()
+        return .renamed
+    }
+
+    // MARK: - Colors
+
+    /// The default color category (first in the list) — used for any label the
+    /// user hasn't explicitly assigned.
+    var defaultCategory: ColorCategory? { colorCategories.first }
+
+    /// The category assigned to `label`, or the default if unassigned / dangling.
+    func category(for label: String) -> ColorCategory? {
+        if let id = labelColorIDs[label],
+           let match = colorCategories.first(where: { $0.id == id }) {
+            return match
+        }
+        return defaultCategory
+    }
+
+    /// The color to paint `label` with in swatches, timelines, and bars.
+    func color(for label: String) -> Color {
+        category(for: label)?.color ?? .accentColor
+    }
+
+    /// Assign a color category to one or more labels at once (shift-select).
+    func setColor(_ categoryID: UUID, for labels: [String]) {
+        for label in labels { labelColorIDs[label] = categoryID }
+        saveLabelColors()
+    }
+
+    /// Rename a color category (the palette itself is fixed — only names change).
+    /// Empty is allowed: names default to empty and an unnamed color just shows
+    /// its swatch.
+    func renameColorCategory(id: UUID, name: String) {
+        guard let i = colorCategories.firstIndex(where: { $0.id == id }) else { return }
+        colorCategories[i].name = name
+        savePalette()
+    }
+
+    /// Roll up time in `range` by color category. Excludes archived labels unless
+    /// asked. Sorted by total desc; categories with no time are omitted.
+    func colorTotals(in range: Range<Date>, includeArchived: Bool = false) -> [ColorTotal] {
+        var byID: [UUID: TimeInterval] = [:]
+        for seg in segments(in: range) {
+            if !includeArchived && archivedLabels.contains(seg.label) { continue }
+            guard let cat = category(for: seg.label) else { continue }
+            byID[cat.id, default: 0] += seg.duration
+        }
+        return colorCategories.compactMap { cat in
+            guard let total = byID[cat.id], total > 0 else { return nil }
+            return ColorTotal(category: cat, total: total)
+        }
+        .sorted { $0.total > $1.total }
     }
 
     // MARK: - Queries
@@ -663,7 +791,19 @@ final class Tracker: ObservableObject {
     func weeklyBreakdown(weekStart: Date, includeArchived: Bool = false) -> [LabelTotal] {
         let cal = Calendar.current
         guard let weekEnd = cal.date(byAdding: .day, value: 7, to: weekStart) else { return [] }
-        let totals = Dictionary(grouping: segments(in: weekStart..<weekEnd), by: \.label)
+        return breakdown(in: weekStart..<weekEnd, includeArchived: includeArchived)
+    }
+
+    /// Per-label totals over the calendar month starting at `monthStart`.
+    func monthlyBreakdown(monthStart: Date, includeArchived: Bool = false) -> [LabelTotal] {
+        let cal = Calendar.current
+        guard let monthEnd = cal.date(byAdding: .month, value: 1, to: monthStart) else { return [] }
+        return breakdown(in: monthStart..<monthEnd, includeArchived: includeArchived)
+    }
+
+    /// Shared per-label rollup over an arbitrary window.
+    private func breakdown(in range: Range<Date>, includeArchived: Bool) -> [LabelTotal] {
+        let totals = Dictionary(grouping: segments(in: range), by: \.label)
             .mapValues { $0.reduce(0) { $0 + $1.duration } }
         return totals
             .compactMap { (label, total) -> LabelTotal? in
@@ -792,6 +932,36 @@ final class Tracker: ObservableObject {
     private func saveArchived() {
         if let data = try? JSONEncoder().encode(Array(archivedLabels).sorted()) {
             try? data.write(to: archivedStoreURL, options: .atomic)
+        }
+    }
+
+    /// Load the color palette and label→color map, seeding the default palette
+    /// on first launch. Absent files ⇒ empty maps ⇒ every label defaults to the
+    /// first (blue) category, so existing installs need no data migration.
+    private func loadColors() {
+        if let data = try? Data(contentsOf: paletteStoreURL),
+           let palette = try? JSONDecoder().decode([ColorCategory].self, from: data),
+           !palette.isEmpty {
+            colorCategories = palette
+        } else {
+            colorCategories = ColorPalette.seedCategories()
+            savePalette()
+        }
+        if let data = try? Data(contentsOf: labelColorStoreURL),
+           let map = try? JSONDecoder().decode([String: UUID].self, from: data) {
+            labelColorIDs = map
+        }
+    }
+
+    private func savePalette() {
+        if let data = try? JSONEncoder().encode(colorCategories) {
+            try? data.write(to: paletteStoreURL, options: .atomic)
+        }
+    }
+
+    private func saveLabelColors() {
+        if let data = try? JSONEncoder().encode(labelColorIDs) {
+            try? data.write(to: labelColorStoreURL, options: .atomic)
         }
     }
 

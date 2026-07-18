@@ -195,12 +195,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let screen = self.statusItem?.button?.window?.screen ?? NSScreen.main ?? NSScreen.screens.first
             guard let f = screen?.visibleFrame else { return }
             let margin: CGFloat = 8
+            // Safety clamp: the panel can never be taller than the screen. The
+            // SwiftUI lists cap themselves to 80% and scroll internally, so this
+            // only bites in pathological cases — and prevents the header being
+            // shoved under the menu bar when it does.
+            let h = min(size.height, f.height - margin * 2)
             let cur = p.frame
             var x = cur.minX
-            var y = cur.maxY - size.height
+            var y = cur.maxY - h
             x = max(f.minX + margin, min(f.maxX - size.width - margin, x))
-            y = max(f.minY + margin, min(f.maxY - size.height - margin, y))
-            p.setFrame(NSRect(origin: NSPoint(x: x, y: y), size: size), display: true, animate: false)
+            y = max(f.minY + margin, min(f.maxY - h - margin, y))
+            p.setFrame(NSRect(origin: NSPoint(x: x, y: y), size: NSSize(width: size.width, height: h)), display: true, animate: false)
         }
     }
 

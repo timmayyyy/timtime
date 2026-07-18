@@ -37,7 +37,8 @@ struct DayOverview: View {
                 runningStart: isToday ? tracker.runningStart : nil,
                 runningLabel: isToday ? tracker.currentLabel : "",
                 now: tracker.tickNow,
-                highlightedLabel: highlightedLabel
+                highlightedLabel: highlightedLabel,
+                colorFor: { tracker.color(for: $0) }
             )
         }
     }
