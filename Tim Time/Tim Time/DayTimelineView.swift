@@ -20,9 +20,11 @@ struct DayTimelineView: View {
     /// Clamps the running-segment drawing/hover so it doesn't extend past
     /// current time when `windowEnd` is in the future (Today = full 24h strip).
     let now: Date
-    /// Segments with this label render green — used to mirror a label-row
-    /// hover from the picker into the timeline.
+    /// When set (via a label-row hover), that label's segments stay vivid and
+    /// the rest dim, so the user can pick one label's time out of the strip.
     var highlightedLabel: String? = nil
+    /// Maps a label to its category color. Defaults to accent.
+    var colorFor: (String) -> Color = { _ in .accentColor }
 
     @State private var hoverInfo: HoverInfo?
 
@@ -73,30 +75,33 @@ struct DayTimelineView: View {
 
         context.fill(
             Path(CGRect(origin: .zero, size: size)),
-            with: .color(Color.secondary.opacity(0.15))
+            with: .color(Color.chartTrack)
         )
 
-        func draw(_ start: Date, _ end: Date, highlighted: Bool) {
+        // A label-row hover (highlightedLabel) dims everything but that label so
+        // its time stands out. A direct strip hover just brightens the segment
+        // under the cursor without dimming the rest.
+        let hoveredStart = hoverInfo?.start
+        let dimMode = highlightedLabel != nil
+
+        func draw(_ label: String, _ start: Date, _ end: Date, focused: Bool) {
             let s = max(start, windowStart)
             let e = min(end, windowEnd)
             guard s < e else { return }
             let xs = (s.timeIntervalSince(windowStart) / totalSeconds) * size.width
             let xe = (e.timeIntervalSince(windowStart) / totalSeconds) * size.width
             let rect = CGRect(x: xs, y: 0, width: max(xe - xs, 1), height: size.height)
-            let color = highlighted ? Color.green : Color.accentColor
-            context.fill(Path(rect), with: .color(color.opacity(0.9)))
+            let opacity: Double = dimMode ? (focused ? 0.95 : 0.22) : (focused ? 1.0 : 0.9)
+            context.fill(Path(rect), with: .color(colorFor(label).opacity(opacity)))
         }
 
-        // Highlight: either the segment under the cursor, or any segment whose
-        // label matches a label-row hover from the parent picker.
-        let hoveredStart = hoverInfo?.start
         for entry in entries {
-            let h = entry.start == hoveredStart || entry.label == highlightedLabel
-            draw(entry.start, entry.end, highlighted: h)
+            let f = entry.start == hoveredStart || entry.label == highlightedLabel
+            draw(entry.label, entry.start, entry.end, focused: f)
         }
         if let rs = runningStart {
-            let h = rs == hoveredStart || runningLabel == highlightedLabel
-            draw(rs, min(now, windowEnd), highlighted: h)
+            let f = rs == hoveredStart || runningLabel == highlightedLabel
+            draw(runningLabel, rs, min(now, windowEnd), focused: f)
         }
     }
 

@@ -12,6 +12,8 @@ struct LabelRow: View {
     /// True when this row is the top filter match — soft background tells the
     /// user that Enter will pick this row.
     let isHighlighted: Bool
+    /// The label's assigned category color, shown as the leading swatch.
+    let color: Color
     let onTap: () -> Void
     let onArchiveToggle: (() -> Void)?
     /// Fired with the label name on hover-in and nil on hover-out so a parent
@@ -28,6 +30,7 @@ struct LabelRow: View {
         isSelected: Bool,
         isArchived: Bool = false,
         isHighlighted: Bool = false,
+        color: Color = .accentColor,
         onTap: @escaping () -> Void,
         onArchiveToggle: (() -> Void)? = nil,
         onHoverChanged: ((String?) -> Void)? = nil
@@ -38,6 +41,7 @@ struct LabelRow: View {
         self.isSelected = isSelected
         self.isArchived = isArchived
         self.isHighlighted = isHighlighted
+        self.color = color
         self.onTap = onTap
         self.onArchiveToggle = onArchiveToggle
         self.onHoverChanged = onHoverChanged
@@ -45,7 +49,9 @@ struct LabelRow: View {
 
     private var rowBackground: Color {
         if confirming { return Color.orange.opacity(0.12) }
-        if isSelected { return Color.accentColor.opacity(0.22) }
+        // The active (running) row is tinted its own category color so "what
+        // I'm tracking now" reads at a glance and shows the label's color.
+        if isActive { return color.opacity(0.2) }
         if hovering { return Color.secondary.opacity(0.1) }
         if isHighlighted { return Color.accentColor.opacity(0.14) }
         return .clear
@@ -56,9 +62,11 @@ struct LabelRow: View {
             // .onTapGesture (not Button) so a focused TextField in the same
             // popover can't eat the first click as "end editing".
             HStack(spacing: 8) {
+                // Static category color swatch. The running label is signalled
+                // by the row background tint (see rowBackground), not the dot.
                 Circle()
-                    .fill(isActive ? Color.green : Color.secondary.opacity(0.3))
-                    .frame(width: 6, height: 6)
+                    .fill(color)
+                    .frame(width: 8, height: 8)
                 Text(label).font(.callout).lineLimit(1)
                 Spacer()
                 if !confirming {
@@ -108,6 +116,12 @@ struct LabelRow: View {
         .padding(.horizontal, 6)
         .background(rowBackground)
         .clipShape(RoundedRectangle(cornerRadius: 5))
+        // Shift-selection is shown as a border only (no fill) so it's clearly
+        // distinct from the active row's category-color fill.
+        .overlay(
+            RoundedRectangle(cornerRadius: 5)
+                .strokeBorder(Color.accentColor.opacity(isSelected ? 0.9 : 0), lineWidth: 1.5)
+        )
         .onHover { h in
             hovering = h
             if !h { confirming = false }

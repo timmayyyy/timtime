@@ -20,8 +20,20 @@ struct MenuView: View {
     /// Anchor date inside the currently-shown week for the weekly view. nil ⇒
     /// "this week" (always tracks `Date()`); otherwise a Date inside a past week.
     @State private var selectedWeekAnchor: Date?
-    @State private var selection: [String] = []   // shift-click picks (ordered, max 2)
-    @State private var showWeekly = false
+    /// Same idea for the month view. nil ⇒ current month.
+    @State private var selectedMonthAnchor: Date?
+    /// Shift-click picks (ordered). Any count: 1 ⇒ rename/color, 2 ⇒ also merge,
+    /// 3+ ⇒ color many at once.
+    @State private var selection: [String] = []
+    /// Which of the three time scopes the popover is showing.
+    @State private var viewMode: ViewMode = .day
+    /// When true, the whole popover shows the Name Colors editor instead.
+    @State private var showColorManager = false
+    /// Color swatch currently hovered in the selection bar; its name (if any) is
+    /// shown inline so a named color is identifiable without opening Manage.
+    @State private var hoveredSwatchID: UUID?
+
+    private enum ViewMode: Equatable { case day, week, month }
     /// Label currently hovered in the picker — DayOverview renders matching
     /// timeline segments in green.
     @State private var hoveredLabel: String?
@@ -37,6 +49,30 @@ struct MenuView: View {
         Calendar.current.isDateInToday(selectedDate)
     }
 
+    /// 80% of the current screen's usable height — the ceiling for the whole
+    /// popover. The scrollable label lists cap themselves to this minus their
+    /// surrounding chrome so the panel never grows past it (the floating panel
+    /// has no AppKit height clamp of its own).
+    private var maxPanelHeight: CGFloat {
+        (NSScreen.main?.visibleFrame.height ?? 900) * 0.8
+    }
+
+    /// Height cap for the day breakdown scroll region. Reserves room for the
+    /// header, input, break card, and footer so the total stays under 80%.
+    private var dayListMaxHeight: CGFloat {
+        max(200, maxPanelHeight - 470)
+    }
+
+    /// Height cap for the weekly bar scroll region.
+    private var weekListMaxHeight: CGFloat {
+        max(180, maxPanelHeight - 340)
+    }
+
+    /// Height cap for the month's per-day rows scroll region.
+    private var monthListMaxHeight: CGFloat {
+        max(200, maxPanelHeight - 300)
+    }
+
     /// The day's label list, filtered by what the user has typed so far.
     /// Includes archived labels only when "Show archived" is on.
     private func filteredBreakdown() -> [LabelTotal] {
@@ -46,22 +82,39 @@ struct MenuView: View {
         return breakdown.filter { $0.label.lowercased().contains(q) }
     }
 
+    private var panelWidth: CGFloat {
+        if showColorManager { return 360 }
+        switch viewMode {
+        case .day: return 340
+        case .week: return 400
+        case .month: return 400
+        }
+    }
+
     var body: some View {
         Group {
-            if showWeekly {
-                weeklyView
+            if showColorManager {
+                manageColorsView
             } else {
-                todayView
+                switch viewMode {
+                case .day: todayView
+                case .week: weeklyView
+                case .month: monthView
+                }
             }
         }
-        .panelContainer(width: showWeekly ? 400 : 340, onSizeChange: onSizeChange)
-        .animation(.easeInOut(duration: 0.22), value: showWeekly)
+        .panelContainer(width: panelWidth, onSizeChange: onSizeChange)
+        .animation(.easeInOut(duration: 0.22), value: viewMode)
+        .animation(.easeInOut(duration: 0.22), value: showColorManager)
         .onAppear {
             selectedDate = Date()
             // Always start in the day view on open — last session's drill-in
             // isn't useful when reopening.
-            showWeekly = false
+            viewMode = .day
+            showColorManager = false
+            resetSelection()
             selectedWeekAnchor = nil
+            selectedMonthAnchor = nil
             input = ""
             DispatchQueue.main.async { inputFocused = true }
             if welcomeBack {
@@ -127,26 +180,33 @@ struct MenuView: View {
                     .filterFieldChrome()
             }
 
-            // Label list (filtered by what's been typed)
+            // Label list (filtered by what's been typed). Scrolls internally
+            // once it would push the popover past 80% of the screen; the input,
+            // selection bar, break card, and footer stay pinned.
             let breakdown = filteredBreakdown()
             if !breakdown.isEmpty {
-                BucketedLabelList(
-                    groups: pickerGroups(from: breakdown),
-                    onTap: { handleTap($0) },
-                    onArchiveToggle: { label in
-                        if tracker.isArchived(label) {
-                            tracker.unarchiveLabel(label)
-                        } else {
-                            tracker.archiveLabel(label)
-                        }
-                        selection.removeAll { $0 == label }
-                    },
-                    onHoverChanged: { hoveredLabel = $0 },
-                    highlightedLabel: input.isEmpty ? nil : breakdown.first?.label
-                )
+                ScrollView {
+                    BucketedLabelList(
+                        groups: pickerGroups(from: breakdown),
+                        onTap: { handleTap($0) },
+                        onArchiveToggle: { label in
+                            if tracker.isArchived(label) {
+                                tracker.unarchiveLabel(label)
+                            } else {
+                                tracker.archiveLabel(label)
+                            }
+                            selection.removeAll { $0 == label }
+                        },
+                        onHoverChanged: { hoveredLabel = $0 },
+                        highlightedLabel: input.isEmpty ? nil : breakdown.first?.label,
+                        colorProvider: { tracker.color(for: $0) }
+                    )
+                    .padding(.trailing, 2)
+                }
+                .frame(maxHeight: dayListMaxHeight)
 
-                if selection.count == 2 {
-                    mergeBar(a: selection[0], b: selection[1])
+                if !selection.isEmpty {
+                    selectionBar
                 }
             }
 
@@ -175,7 +235,7 @@ struct MenuView: View {
                 }
                 Spacer()
                 Button {
-                    showWeekly = true
+                    viewMode = .week
                 } label: {
                     HStack(spacing: 2) {
                         Text("Week")
@@ -236,7 +296,8 @@ struct MenuView: View {
                     weekStart: weekStart,
                     runningStart: isCurrentWeek ? tracker.runningStart : nil,
                     runningLabel: isCurrentWeek ? tracker.currentLabel : "",
-                    highlightedLabel: hoveredWeekLabel
+                    highlightedLabel: hoveredWeekLabel,
+                    colorFor: { tracker.color(for: $0) }
                 )
             }
             .background(WindowDragArea())
@@ -248,14 +309,23 @@ struct MenuView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, 20)
             } else {
-                weeklyBarList(weekly)
+                let weekEnd = Calendar.current.date(byAdding: .day, value: 7, to: weekStart) ?? weekStart
+                ScrollView {
+                    weeklyBarList(weekly)
+                        .padding(.trailing, 2)
+                }
+                .frame(maxHeight: weekListMaxHeight)
+                // Pinned below the scrolling bars, so the by-color roll-up is
+                // always visible at the bottom (same as the month view).
+                colorTotalsSection(tracker.colorTotals(in: weekStart..<weekEnd))
             }
 
             Divider()
             HStack(spacing: 8) {
                 Button {
                     selectedWeekAnchor = nil
-                    showWeekly = false
+                    selectedDate = Date()
+                    viewMode = .day
                 } label: {
                     HStack(spacing: 2) {
                         Image(systemName: "chevron.left")
@@ -266,8 +336,140 @@ struct MenuView: View {
                 .foregroundStyle(.secondary)
 
                 Spacer()
+
+                Button {
+                    viewMode = .month
+                } label: {
+                    HStack(spacing: 2) {
+                        Text("Month")
+                        Image(systemName: "chevron.right")
+                    }
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
             }
         }
+    }
+
+    // MARK: - Month view
+
+    @ViewBuilder
+    private var monthView: some View {
+        let monthStart = currentDisplayedMonthStart()
+        let isCurrentMonth = Calendar.current.isDate(
+            monthStart, equalTo: currentMonthStart(), toGranularity: .month
+        )
+        let monthEnd = Calendar.current.date(byAdding: .month, value: 1, to: monthStart) ?? monthStart
+        let colorTotals = tracker.colorTotals(in: monthStart..<monthEnd)
+        let monthTotal = colorTotals.reduce(0.0) { $0 + $1.total }
+
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 0) {
+                    Image(systemName: "chevron.left")
+                        .font(.body.weight(.medium))
+                        .frame(width: 36, height: 28)
+                        .contentShape(Rectangle())
+                        .onTapGesture { shiftMonth(-1) }
+
+                    Spacer()
+                    Text(monthTitle(monthStart: monthStart))
+                        .font(.callout).bold()
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.body.weight(.medium))
+                        .frame(width: 36, height: 28)
+                        .contentShape(Rectangle())
+                        .opacity(isCurrentMonth ? 0.25 : 1)
+                        .onTapGesture { if !isCurrentMonth { shiftMonth(1) } }
+                }
+
+                Text(monthTotal.hms)
+                    .font(.system(.title, design: .monospaced))
+                    .frame(maxWidth: .infinity, alignment: .center)
+            }
+            .background(WindowDragArea())
+
+            if monthTotal == 0 {
+                Text("No time logged this month.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 12)
+            } else {
+                ScrollView {
+                    MonthChartView(tracker: tracker, monthStart: monthStart, monthEnd: monthEnd)
+                        .padding(.trailing, 2)
+                }
+                .frame(maxHeight: monthListMaxHeight)
+                // Pinned below the scrolling day rows.
+                colorTotalsSection(colorTotals)
+            }
+
+            Divider()
+            HStack(spacing: 8) {
+                Button {
+                    viewMode = .week
+                } label: {
+                    HStack(spacing: 2) {
+                        Image(systemName: "chevron.left")
+                        Text("Week")
+                    }
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Button {
+                    selectedMonthAnchor = nil
+                    selectedDate = Date()
+                    viewMode = .day
+                } label: {
+                    Text("Today")
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func shiftMonth(_ delta: Int) {
+        let cal = Calendar.current
+        let anchor = currentDisplayedMonthStart()
+        guard let next = cal.date(byAdding: .month, value: delta, to: anchor) else { return }
+        if next > currentMonthStart() {
+            selectedMonthAnchor = nil
+        } else {
+            selectedMonthAnchor = next
+        }
+    }
+
+    private func currentDisplayedMonthStart() -> Date {
+        if let anchor = selectedMonthAnchor {
+            return monthStart(of: anchor)
+        }
+        return currentMonthStart()
+    }
+
+    private func currentMonthStart() -> Date { monthStart(of: Date()) }
+
+    private func monthStart(of date: Date) -> Date {
+        let cal = Calendar.current
+        return cal.date(from: cal.dateComponents([.year, .month], from: date))
+            ?? cal.startOfDay(for: date)
+    }
+
+    private func monthTitle(monthStart: Date) -> String {
+        monthStart.formatted(.dateTime.month(.wide).year())
+    }
+
+    // MARK: - Manage colors
+
+    @ViewBuilder
+    private var manageColorsView: some View {
+        ManageColorsView(tracker: tracker) { showColorManager = false }
     }
 
     private func shiftWeek(_ delta: Int) {
@@ -310,44 +512,153 @@ struct MenuView: View {
         )) ?? cal.startOfDay(for: Date())
     }
 
-    // MARK: - Merge bar
+    // MARK: - Selection action bar
 
+    /// Shown whenever one or more labels are shift-selected. Adapts to the count:
+    /// 1 ⇒ rename + color, 2 ⇒ merge + color, 3+ ⇒ color many at once.
     @ViewBuilder
-    private func mergeBar(a: String, b: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Merge")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            HStack(spacing: 6) {
-                Button {
-                    tracker.mergeLabels(from: a, into: b)
-                    selection.removeAll()
-                } label: {
-                    Text("\(a) → \(b)").font(.caption).lineLimit(1)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-
-                Button {
-                    tracker.mergeLabels(from: b, into: a)
-                    selection.removeAll()
-                } label: {
-                    Text("\(b) → \(a)").font(.caption).lineLimit(1)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-
-                Spacer()
-
-                Button("Cancel") { selection.removeAll() }
-                    .buttonStyle(.borderless)
-                    .controlSize(.small)
-                    .foregroundStyle(.secondary)
+    private var selectionBar: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            colorSwatchRow
+            if selection.count >= 2 {
+                mergeRow
             }
         }
         .padding(8)
         .background(Color.accentColor.opacity(0.1))
         .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    /// Name shown for the hovered swatch (nil if none / unnamed).
+    private var hoveredSwatchLabel: String? {
+        guard let id = hoveredSwatchID,
+              let name = tracker.colorCategories.first(where: { $0.id == id })?.name,
+              !name.isEmpty else { return nil }
+        return name
+    }
+
+    @ViewBuilder
+    private var colorSwatchRow: some View {
+        HStack(spacing: 6) {
+            Text("Color")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            ForEach(tracker.colorCategories) { category in
+                Button {
+                    tracker.setColor(category.id, for: selection)
+                    resetSelection()
+                } label: {
+                    Circle()
+                        .fill(category.color)
+                        .frame(width: 16, height: 16)
+                        .overlay(Circle().stroke(Color.white.opacity(0.5), lineWidth: 0.5))
+                }
+                .buttonStyle(.plain)
+                .onHover { h in
+                    if h { hoveredSwatchID = category.id }
+                    else if hoveredSwatchID == category.id { hoveredSwatchID = nil }
+                }
+            }
+            // Hovered color's name, inline so it doesn't shift the swatches.
+            if let name = hoveredSwatchLabel {
+                Text(name)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Button("Manage…") { showColorManager = true }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Merge every selected label into one. With two selected this offers both
+    /// directions; with three or more, pick which selected label they all fold
+    /// into. Scrolls horizontally so long label names don't clip.
+    @ViewBuilder
+    private var mergeRow: some View {
+        HStack(spacing: 6) {
+            Text(selection.count == 2 ? "Merge" : "Merge into")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(selection, id: \.self) { target in
+                        Button {
+                            mergeSelection(into: target)
+                        } label: {
+                            Text(mergeButtonLabel(target: target))
+                                .font(.caption)
+                                .lineLimit(1)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                }
+                .padding(.vertical, 1)
+            }
+        }
+    }
+
+    /// For two labels, show the directional "other → target"; for more, just the
+    /// target name (everything else folds into it).
+    private func mergeButtonLabel(target: String) -> String {
+        if selection.count == 2, let other = selection.first(where: { $0 != target }) {
+            return "\(other) → \(target)"
+        }
+        return target
+    }
+
+    private func mergeSelection(into target: String) {
+        for label in selection where label != target {
+            tracker.mergeLabels(from: label, into: target)
+        }
+        resetSelection()
+    }
+
+    private func resetSelection() {
+        selection.removeAll()
+        hoveredSwatchID = nil
+    }
+
+    // MARK: - By-color rollup
+
+    /// Shared "By color" section (weekly + monthly). Only rendered when two or
+    /// more colors are actually in use, so a single-color week stays uncluttered.
+    private func colorTotalsSection(_ totals: [ColorTotal]) -> some View {
+        let grandTotal = totals.reduce(0.0) { $0 + $1.total }
+        return Group {
+            if totals.count >= 2 {
+                Divider()
+                Text("By color")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(totals) { ct in
+                        HStack(spacing: 6) {
+                            Circle().fill(ct.category.color).frame(width: 9, height: 9)
+                            Text(ct.category.name).font(.callout)
+                            Spacer()
+                            Text(percentString(ct.total, of: grandTotal))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 34, alignment: .trailing)
+                            Text(ct.total.hm)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 62, alignment: .trailing)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func percentString(_ value: TimeInterval, of total: TimeInterval) -> String {
+        guard total > 0 else { return "" }
+        return "\(Int((value / total * 100).rounded()))%"
     }
 
     // MARK: - Bucketing
@@ -387,15 +698,16 @@ struct MenuView: View {
 
     private func handleTap(_ label: String) {
         if NSEvent.modifierFlags.contains(.shift) {
+            // Toggle into the multi-select set. No cap — you can color many at
+            // once; merge just only offers itself when exactly two are picked.
             if let i = selection.firstIndex(of: label) {
                 selection.remove(at: i)
             } else {
                 selection.append(label)
-                if selection.count > 2 { selection.removeFirst() }
             }
             return
         }
-        selection.removeAll()
+        resetSelection()
         tracker.start(label)
         selectedDate = Date()
         // Auto-opened popover (wake handler) was asking "what now?" — tapping
@@ -417,17 +729,21 @@ struct MenuView: View {
     @ViewBuilder
     private func weeklyBarList(_ items: [LabelTotal]) -> some View {
         let maxTotal = items.first?.total ?? 1
+        let dimMode = hoveredWeekLabel != nil
         VStack(alignment: .leading, spacing: 6) {
             ForEach(items) { item in
-                let hovered = hoveredWeekLabel == item.label
+                let focused = hoveredWeekLabel == item.label
+                let barColor = tracker.color(for: item.label)
+                let barOpacity: Double = dimMode ? (focused ? 1.0 : 0.28) : 0.85
                 VStack(alignment: .leading, spacing: 2) {
+                    // No dot — the bar below is already this label's color.
                     Text(item.label).font(.callout)
                     HStack(spacing: 6) {
                         GeometryReader { geo in
                             ZStack(alignment: .leading) {
-                                Color.secondary.opacity(0.15)
-                                (hovered ? Color.green : Color.accentColor)
-                                    .opacity(0.75)
+                                Color.chartTrack
+                                barColor
+                                    .opacity(barOpacity)
                                     .frame(width: geo.size.width * (item.total / maxTotal))
                             }
                             .clipShape(RoundedRectangle(cornerRadius: 2))

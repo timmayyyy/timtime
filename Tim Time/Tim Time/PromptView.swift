@@ -522,7 +522,8 @@ private struct PromptContentView: View {
                         onTap: onSubmit,
                         onArchiveToggle: nil,
                         onHoverChanged: { hoveredLabel = $0 },
-                        highlightedLabel: isFiltering ? allMatches.first?.label : nil
+                        highlightedLabel: isFiltering ? allMatches.first?.label : nil,
+                        colorProvider: { tracker.color(for: $0) }
                     )
                     .padding(.trailing, 2)
                 }

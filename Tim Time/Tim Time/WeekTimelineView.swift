@@ -11,9 +11,11 @@ struct WeekTimelineView: View {
     let weekStart: Date
     let runningStart: Date?
     let runningLabel: String
-    /// Segments with this label paint green — mirrors a hover on a row in the
-    /// weekly bar list, same idiom as DayTimelineView's `highlightedLabel`.
+    /// When set (via a hover on a weekly bar row), that label's segments stay
+    /// vivid and the rest dim across every day strip.
     var highlightedLabel: String? = nil
+    /// Maps a label to its category color. Defaults to accent.
+    var colorFor: (String) -> Color = { _ in .accentColor }
 
     @State private var hover: HoverState?
 
@@ -94,33 +96,36 @@ struct WeekTimelineView: View {
 
         ctx.fill(
             Path(CGRect(origin: .zero, size: size)),
-            with: .color(Color.secondary.opacity(0.15))
+            with: .color(Color.chartTrack)
         )
-
-        func draw(_ start: Date, _ end: Date, highlighted: Bool) {
-            let s = max(start, dayStart)
-            let e = min(end, dayEnd, now)
-            guard s < e else { return }
-            let xs = (s.timeIntervalSince(dayStart) / totalSeconds) * size.width
-            let xe = (e.timeIntervalSince(dayStart) / totalSeconds) * size.width
-            let rect = CGRect(x: xs, y: 0, width: max(xe - xs, 1), height: size.height)
-            let color = highlighted ? Color.green : Color.accentColor
-            ctx.fill(Path(rect), with: .color(color.opacity(0.9)))
-        }
 
         // Identify the hovered entry by its start date — entries don't share starts.
         let hoveredStart: Date? = {
             guard let h = hover, h.dayIndex == offset else { return nil }
             return h.start
         }()
+        // A bar-row hover (highlightedLabel) dims all but that label across every
+        // day strip. A direct strip hover only brightens the hovered segment.
+        let dimMode = highlightedLabel != nil
+
+        func draw(_ label: String, _ start: Date, _ end: Date, focused: Bool) {
+            let s = max(start, dayStart)
+            let e = min(end, dayEnd, now)
+            guard s < e else { return }
+            let xs = (s.timeIntervalSince(dayStart) / totalSeconds) * size.width
+            let xe = (e.timeIntervalSince(dayStart) / totalSeconds) * size.width
+            let rect = CGRect(x: xs, y: 0, width: max(xe - xs, 1), height: size.height)
+            let opacity: Double = dimMode ? (focused ? 0.95 : 0.22) : (focused ? 1.0 : 0.9)
+            ctx.fill(Path(rect), with: .color(colorFor(label).opacity(opacity)))
+        }
 
         for entry in entries {
-            let h = entry.start == hoveredStart || entry.label == highlightedLabel
-            draw(entry.start, entry.end, highlighted: h)
+            let f = entry.start == hoveredStart || entry.label == highlightedLabel
+            draw(entry.label, entry.start, entry.end, focused: f)
         }
         if let rs = runningStart, !runningLabel.isEmpty {
-            let h = rs == hoveredStart || runningLabel == highlightedLabel
-            draw(rs, now, highlighted: h)
+            let f = rs == hoveredStart || runningLabel == highlightedLabel
+            draw(runningLabel, rs, now, focused: f)
         }
     }
 

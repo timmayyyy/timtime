@@ -10,19 +10,24 @@ struct BucketedLabelList: View {
     /// The label Enter will submit — rendered with a soft accent background
     /// so the user can see what's about to be selected.
     let highlightedLabel: String?
+    /// Maps a label to its category color for the leading swatch. Defaults to
+    /// accent so callers that don't care about colors need no change.
+    let colorProvider: ((String) -> Color)?
 
     init(
         groups: [PickerBucket],
         onTap: @escaping (String) -> Void,
         onArchiveToggle: ((String) -> Void)? = nil,
         onHoverChanged: ((String?) -> Void)? = nil,
-        highlightedLabel: String? = nil
+        highlightedLabel: String? = nil,
+        colorProvider: ((String) -> Color)? = nil
     ) {
         self.groups = groups
         self.onTap = onTap
         self.onArchiveToggle = onArchiveToggle
         self.onHoverChanged = onHoverChanged
         self.highlightedLabel = highlightedLabel
+        self.colorProvider = colorProvider
     }
 
     var body: some View {
@@ -41,6 +46,7 @@ struct BucketedLabelList: View {
                             isSelected: item.isSelected,
                             isArchived: item.isArchived,
                             isHighlighted: item.label == highlightedLabel,
+                            color: colorProvider?(item.label) ?? .accentColor,
                             onTap: { onTap(item.label) },
                             onArchiveToggle: onArchiveToggle.map { fn in
                                 { fn(item.label) }
