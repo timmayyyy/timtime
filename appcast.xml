@@ -8,6 +8,26 @@
     <description>Updates for TimTime — a minimalist macOS menu bar time tracker.</description>
     <language>en</language>
     <item>
+      <title>Version 1.1.1</title>
+      <pubDate>Fri, 07 Aug 2026 10:23:59 +0000</pubDate>
+      <sparkle:version>11</sparkle:version>
+      <sparkle:shortVersionString>1.1.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+        <h3>TimTime 1.1.1</h3>
+        <ul>
+          <li><strong>Fixed — time you spent asleep is no longer billed as work.</strong> Leaving a task running overnight could keep it counting until morning; one entry billed 6 hours of sleep.</li>
+          <li>TimTime already stops a task after 5 minutes of no keyboard or mouse activity. The exception that keeps it running through quiet meetings trusted "some app is keeping the screen awake" as proof you were there — and browsers hold that for a video in <em>any</em> tab, including a silent, backgrounded one, sometimes for hours.</li>
+          <li>That signal now only vouches for you for 45 minutes past your last real interaction. A live microphone still counts indefinitely, so long meetings are tracked exactly as before and still backdate to when the call ended.</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/timmayyyy/timtime/releases/download/v1.1.1/TimTime.dmg"
+        sparkle:edSignature="lZxmxmHMD5dK/9UL0KrjNZxPYcyFPm8xhs8W8E8MRiT8P8N2FtpyYw7C24maBtGx7W8yeQ6kKj5gbO32buOYAg=="
+        length="1740568"
+        type="application/octet-stream" />
+    </item>
+    <item>
       <title>Version 1.1.0</title>
       <pubDate>Sat, 18 Jul 2026 12:56:51 +0000</pubDate>
       <sparkle:version>10</sparkle:version>
