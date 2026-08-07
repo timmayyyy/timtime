@@ -119,29 +119,33 @@ final class Nudger {
         showWorkPrompt()
     }
 
-    /// Show the standalone running-break timer, counting from `startAt` (use
-    /// `Date()` for now, or an earlier date to pre-seed elapsed — e.g. backdated
-    /// to when the Mac fell asleep). Used only for auto-started breaks; the
-    /// decision-time break flow lives inside the work check-in.
-    func showBreath(autoStartAt startAt: Date, autoStarted: Bool = false) {
-        guard tracker != nil else { return }
-        promptPanel.showBreath(
-            startAt: startAt,
-            onDone: { [weak self] in
-                guard let self else { return }
-                self.onBreak = false
-                self.breakWasAutoStarted = false
-                self.tracker?.logBreath(done: true)
-                // Break finished → ask what's next and re-anchor the cycle.
-                self.showWorkPrompt()
-                self.scheduleCycle()
-            },
-            onBreakStart: { [weak self] in
-                self?.onBreak = true
-                self?.breakWasAutoStarted = autoStarted
-                self?.tracker?.stop()
-            }
-        )
+    /// Begin a break. There is no break *panel* any more — the persistent break
+    /// pill is the entire surface, and it shows no elapsed time — so this just
+    /// moves the state and stops the clock. Callers that used to backdate a
+    /// pre-rolled timer (waking from a short sleep) no longer need to: the gap
+    /// in tracked work already carries that information.
+    func startBreak(autoStarted: Bool = false) {
+        guard let tracker else { return }
+        promptPanel.close()
+        onBreak = true
+        breakWasAutoStarted = autoStarted
+        tracker.stop()
+        // Nothing should nudge into an empty room mid-break; picking a task
+        // from the pill re-anchors a fresh cycle.
+        cancelTimers()
+    }
+
+    /// The break pill was clicked. End the break and open the picker so the user
+    /// can say what they're starting. Logs the break on the way out so one
+    /// shorter than `breakGapThreshold` still resets `timeSinceLastBreak` —
+    /// gap inference alone would miss it.
+    func pickTaskFromPill() {
+        if onBreak { tracker?.logBreath(done: true) }
+        onBreak = false
+        breakWasAutoStarted = false
+        promptPanel.close()
+        showWorkPrompt(startInPicker: true)
+        scheduleCycle()
     }
 
     private func showWorkPrompt(startInPicker: Bool = false) {
@@ -155,19 +159,9 @@ final class Nudger {
             timeSinceLastBreak: tracker.timeSinceLastBreak,
             startInPicker: startInPicker,
             breakOverdue: breakOverdue,
-            onBreath: { [weak self] done in
-                guard let self else { return }
-                self.onBreak = false
-                self.tracker?.logBreath(done: done)
-                if done {
-                    self.showWorkPrompt()
-                    self.scheduleCycle()
-                }
-            },
             onBreakStart: { [weak self] in
-                self?.onBreak = true
-                self?.breakWasAutoStarted = false
-                self?.tracker?.stop()
+                // Taking a break closes the prompt; the pill takes over from here.
+                self?.startBreak(autoStarted: false)
             }
         ) { [weak self] label in
             self?.tracker?.start(label)

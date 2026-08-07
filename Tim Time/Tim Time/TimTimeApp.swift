@@ -25,6 +25,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var menuPanel: FloatingPanel?
     private var menuClickMonitor: Any?
+    /// The "Break" badge shown under the menu bar whenever nothing is tracked.
+    private let breakPill = BreakPill()
     /// Last size we asked the menu panel to be. SwiftUI's onPreferenceChange
     /// fires repeatedly during the resize animation — tracking the requested
     /// size short-circuits the loop.
@@ -70,7 +72,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         tracker.objectWillChange
             .sink { [weak self] in
-                Task { @MainActor in self?.refreshStatusItem() }
+                Task { @MainActor in
+                    self?.refreshStatusItem()
+                    self?.refreshBreakPill()
+                }
             }
             .store(in: &cancellables)
         NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
@@ -78,7 +83,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 Task { @MainActor in self?.refreshStatusItem() }
             }
             .store(in: &cancellables)
+        // The prompt/menu panels claim the same corner, so re-evaluate the pill
+        // whenever one opens or closes.
+        NotificationCenter.default.publisher(for: .timTimePanelVisibilityChanged)
+            .sink { [weak self] _ in
+                Task { @MainActor in self?.refreshBreakPill() }
+            }
+            .store(in: &cancellables)
         refreshStatusItem()
+        refreshBreakPill()
+    }
+
+    /// The pill is up exactly when nothing is being tracked and no other surface
+    /// owns the top-right corner. Deliberately keyed on `isRunning` rather than
+    /// the Nudger's explicit break flag: the states the user actually misses are
+    /// the implicit ones (idle auto-stop, a dismissed check-in, a wake from
+    /// sleep), and "not tracking" covers all of them — the same condition that
+    /// already drives the menu bar's "Break" text.
+    private func refreshBreakPill() {
+        let otherSurfaceUp = NSApp.windows.contains { $0 is FloatingPanel && $0.isVisible }
+        if tracker.isRunning || otherSurfaceUp {
+            breakPill.hide()
+        } else {
+            breakPill.show { [weak self] in
+                guard let self else { return }
+                self.breakPill.hide()
+                self.tracker.pickTaskFromBreakPill()
+            }
+        }
     }
 
     // MARK: - Status item click handling
@@ -162,6 +194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         p.contentView = host
         p.orderFrontRegardless()
+        Notification.Name.postPanelVisibilityChanged()
         if !welcomeBack {
             // Manual opens activate so the textfield takes keystrokes. Auto-opens
             // (wake) skip activation so the panel dismisses cleanly on click-away.
@@ -217,6 +250,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menuPanel?.orderOut(nil)
         menuPanel = nil
         lastRequestedMenuSize = .zero
+        Notification.Name.postPanelVisibilityChanged()
     }
 
     // MARK: - Right-click NSMenu
@@ -323,6 +357,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Menu bar title
 
+    /// Menu bar space is scarce and shared with every other status item, so the
+    /// task name is clipped to `menuBarLabelLimit` characters. An ellipsis marks
+    /// the clip (one character, and without it "Serve Fund" reads like the whole
+    /// label). Trailing whitespace is trimmed first so we never emit "Serve …".
+    static let menuBarLabelLimit = 10
+    static func menuBarLabel(_ label: String) -> String {
+        guard label.count > menuBarLabelLimit else { return label }
+        let clipped = label.prefix(menuBarLabelLimit)
+            .reversed().drop(while: \.isWhitespace).reversed()
+        return String(clipped) + "…"
+    }
+
     private func refreshStatusItem() {
         guard let button = statusItem?.button else { return }
         if tracker.isRunning {
@@ -341,7 +387,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if showTask {
             if tracker.isRunning, !tracker.currentLabel.isEmpty {
                 let total = tracker.todayTotal(for: tracker.currentLabel)
-                button.title = " \(tracker.currentLabel) - \(total.hm)"
+                button.title = " \(Self.menuBarLabel(tracker.currentLabel)) - \(total.hm)"
             } else {
                 button.title = " Break"
             }
