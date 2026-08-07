@@ -33,10 +33,17 @@ final class Tracker: ObservableObject {
     /// call, or video keeping the screen awake. Counts as activity so sitting in
     /// a meeting never trips the idle auto-stop, and so a post-meeting walk-away
     /// is backdated to the meeting's end, not to the last keystroke before it.
+    /// Only the mic refreshes this indefinitely; see `assertionPresenceCap`.
     private var lastActiveSignalAt: Date?
     /// No keyboard/mouse input for this long while a task is running → treat the
     /// user as away: close the entry (backdated to the last input) and stop.
     private let awayIdleThreshold: TimeInterval = 5 * 60
+    /// How far past the last real input a display-sleep assertion alone may keep
+    /// vouching for presence. The assertion is a *weak* signal — see
+    /// `displaySleepPrevented()` for why it can't be trusted unbounded — so it
+    /// buys a movie or a screen-share this much grace and no more. The mic is
+    /// the trustworthy signal and is deliberately not capped.
+    private let assertionPresenceCap: TimeInterval = 45 * 60
     /// How often the watchdog samples idle time.
     private let idleWatchInterval: TimeInterval = 15
     /// Consecutive idle-watchdog polls that have seen real input while an
@@ -212,8 +219,18 @@ final class Tracker: ObservableObject {
     private func idleWatchdogTick() {
         let idle = Self.systemInputIdle()
         // "Present without typing" — in a meeting/call/video. Counts as activity
-        // so the watchdog never mistakes a quiet meeting for being away.
-        if Self.userIsPresentDespiteIdle() { lastActiveSignalAt = Date() }
+        // so the watchdog never mistakes a quiet meeting for being away. The two
+        // signals carry different weight: a live mic is near-proof of a call, so
+        // it vouches indefinitely; a display-sleep assertion is routinely held by
+        // background junk, so it only vouches for `assertionPresenceCap` past the
+        // last real input.
+        let lastInputAt = Date().addingTimeInterval(-idle)
+        if Self.micInUse() {
+            lastActiveSignalAt = Date()
+        } else if Self.displaySleepPrevented(),
+                  Date().timeIntervalSince(lastInputAt) < assertionPresenceCap {
+            lastActiveSignalAt = Date()
+        }
 
         // Reset the break-engagement counter whenever we're not in an
         // interruptible break, so a later auto-break counts from zero.
@@ -260,20 +277,26 @@ final class Tracker: ObservableObject {
         }
     }
 
-    /// True when the user is clearly at the machine but not generating input —
-    /// a video call, meeting, or media playback. Used to suppress the idle
-    /// auto-stop. Two complementary public signals, neither needing permission:
-    /// an app holding a "keep the display awake" power assertion, or the mic
-    /// being live. Defaults to false (watchdog active) if both reads fail.
-    private static func userIsPresentDespiteIdle() -> Bool {
-        displaySleepPrevented() || micInUse()
-    }
-
     /// Any process asserting "prevent the display from idle-sleeping" — held by
     /// Zoom/Meet/Teams/FaceTime during calls and by video players during
     /// playback, including when muted or camera-off. Scoped to *display* sleep
     /// only; system-sleep assertions (downloads, backups) are deliberately
     /// ignored so background tasks don't keep a stale task alive.
+    ///
+    /// ⚠️ Weak signal — never let this vouch for presence unbounded. Browsers
+    /// hold a "Video Wake Lock" for a video element in *any* tab, including a
+    /// backgrounded, silent, finished one, and `coreaudiod` leaves stale
+    /// per-context display assertions alive for days. Observed in the wild: an
+    /// 11-hour browser lock on a silent tab and 78-hour coreaudiod contexts,
+    /// which together billed a 6-hour overnight entry as work. Hence the
+    /// `assertionPresenceCap` in `idleWatchdogTick`.
+    ///
+    /// Audio *output* looks like the obvious tiebreaker ("no sound ⇒ nobody's
+    /// watching") but isn't usable: `kAudioDevicePropertyDeviceIsRunningSomewhere`
+    /// on the default output device reads `true` on an idle Mac whenever any app
+    /// holds an output stream open, so it's a "some app has audio wired up"
+    /// signal, not a "sound is playing" one. The mic is the only audio signal
+    /// that tracks reality.
     private static func displaySleepPrevented() -> Bool {
         var status: Unmanaged<CFDictionary>?
         guard IOPMCopyAssertionsStatus(&status) == kIOReturnSuccess,
