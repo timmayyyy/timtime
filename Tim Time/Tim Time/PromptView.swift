@@ -42,7 +42,6 @@ final class PromptPanel {
         timeSinceLastBreak: TimeInterval?,
         startInPicker: Bool = false,
         breakOverdue: Bool = false,
-        onBreath: @escaping (Bool) -> Void,
         onBreakStart: @escaping () -> Void,
         onSubmit: @escaping (String) -> Void
     ) {
@@ -59,12 +58,6 @@ final class PromptPanel {
                 self?.close()
             },
             onDismiss: { [weak self] in self?.close() },
-            onBreath: { [weak self] done in
-                // Done/Skip closes the panel; the parent then decides whether to
-                // re-open a fresh work prompt (Done) or just stop (Skip).
-                self?.close()
-                onBreath(done)
-            },
             onBreakStart: onBreakStart,
             onRequestKey: { [weak self] in self?.makeCurrentPanelKey() },
             onSizeChange: { [weak self] size in self?.applyContentSize(size) }
@@ -106,33 +99,12 @@ final class PromptPanel {
         }
     }
 
-    /// Standalone running-break timer — used for auto-started breaks (waking
-    /// from a short sleep, or the menu's quick break). The in-prompt break flow
-    /// lives in `PromptContentView`; this panel is just the counter + Done.
-    func showBreath(
-        startAt: Date,
-        onDone: @escaping () -> Void,
-        onBreakStart: @escaping () -> Void
-    ) {
-        let content = BreathContentView(
-            startAt: startAt,
-            onDone: { [weak self] in
-                self?.close()
-                onDone()
-            },
-            onStart: onBreakStart,
-            onSizeChange: { [weak self] size in self?.applyContentSize(size) }
-        )
-        // Never auto-dismisses — only Done closes it. The user shouldn't have a
-        // stretch interrupted by the panel disappearing.
-        present(AnyView(content), initialSize: NSSize(width: 260, height: 150), autoDismissAfter: 0)
-    }
-
     func close() {
         autoDismiss?.cancel()
         autoDismiss = nil
         panel?.orderOut(nil)
         panel = nil
+        Notification.Name.postPanelVisibilityChanged()
     }
 
     /// Bring the already-visible panel to key so its text field is live — used
@@ -192,6 +164,7 @@ final class PromptPanel {
         p.orderFrontRegardless()
 
         panel = p
+        Notification.Name.postPanelVisibilityChanged()
 
         autoDismiss?.cancel()
         autoDismiss = nil
@@ -221,7 +194,6 @@ private struct PromptContentView: View {
     let breakOverdue: Bool
     let onSubmit: (String) -> Void
     let onDismiss: () -> Void
-    let onBreath: (Bool) -> Void
     let onBreakStart: () -> Void
     /// Pull keyboard focus to the panel — called when the user switches to the
     /// picker (✗) so they can type a label immediately and hit Return without a
@@ -232,17 +204,11 @@ private struct PromptContentView: View {
     @State private var input = ""
     /// Set when the user clicks ✗ on confirm — switches to picker.
     @State private var showPicker = false
-    /// True once the user taps Break? inline — switches to the breath timer.
-    @State private var inBreath = false
-    @State private var breathStartedAt: Date?
-    @State private var breathNow: Date = Date()
-    @State private var breathTicker: Task<Void, Never>?
-    /// No-interaction timer. In confirm mode it just dismisses the popup
-    /// (the user is presumed to be working). In picker mode it auto-breaks
-    /// (nothing was running, presume the user is away).
+    /// No-interaction timer — in either mode it just dismisses the popup.
+    /// Ignoring a check-in never forces a break; see `startIdleTimer`.
     @State private var idleTask: Task<Void, Never>?
-    /// Auto-break delay for the picker — user came back to a check-in but
-    /// didn't engage, so flip to the breath view backdated by this much.
+    /// Picker dismiss delay. Short because an unanswered picker means nothing is
+    /// being tracked, so the panel is just sitting in the user's way.
     private let idleCountdownSeconds: TimeInterval = 30
     /// Confirm mode is non-destructive: just close the popup after a long
     /// grace period so a heads-down user isn't punished for ignoring it.
@@ -255,9 +221,8 @@ private struct PromptContentView: View {
     @State private var prompt = BreakPrompt.random()
     @FocusState private var focused: Bool
 
-    private enum Phase { case confirm, picker, breath }
+    private enum Phase { case confirm, picker }
     private var phase: Phase {
-        if inBreath { return .breath }
         if currentLabel != nil && !showPicker && !startInPicker { return .confirm }
         return .picker
     }
@@ -317,21 +282,12 @@ private struct PromptContentView: View {
         switch phase {
         case .confirm: return "Are you still working on?"
         case .picker:  return "What are you working on?"
-        case .breath:  return breathStartedAt != nil ? "On break" : "Take a moment"
         }
-    }
-
-    private var breathElapsed: TimeInterval {
-        guard let s = breathStartedAt else { return 0 }
-        return breathNow.timeIntervalSince(s)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 6) {
-                if phase == .breath {
-                    Image(systemName: "wind").foregroundStyle(.blue)
-                }
                 Text(headline)
                     .font(.headline)
                     .id(headline)
@@ -345,17 +301,14 @@ private struct PromptContentView: View {
                 switch phase {
                 case .confirm: confirmView.transition(.opacity)
                 case .picker:  pickerView.transition(.opacity)
-                case .breath:  breathView.transition(.opacity)
                 }
             }
             .animation(.easeInOut(duration: 0.22), value: phase)
 
             // One interface: the work check-in always shows; the break button
             // lives inside it — a small one-liner normally, the prominent card
-            // once a stand-up is overdue. Hidden while the inline timer runs.
-            if phase != .breath {
-                breakButton
-            }
+            // once a stand-up is overdue.
+            breakButton
         }
         .panelContainer(width: phase == .picker ? 340 : 280, onSizeChange: onSizeChange)
         .onAppear {
@@ -371,11 +324,10 @@ private struct PromptContentView: View {
         }
         .onChange(of: input) { _, _ in cancelIdleTimer() }
         .onDisappear {
-            breathTicker?.cancel()
             cancelIdleTimer()
         }
         .onExitCommand {
-            if phase != .breath { onDismiss() }
+            onDismiss()
         }
     }
 
@@ -415,11 +367,6 @@ private struct PromptContentView: View {
         }
     }
 
-    @ViewBuilder
-    private var breathView: some View {
-        BreathTimer(elapsed: breathElapsed) { onBreath(true) }
-    }
-
     /// The one break affordance, shared across confirm and picker. Small and
     /// quiet under the threshold; once a stand-up is overdue it grows into the
     /// prominent card with the big time-since-break headline and varied copy.
@@ -428,36 +375,22 @@ private struct PromptContentView: View {
             overdue: breakOverdue,
             timeSinceLastBreak: timeSinceLastBreak,
             prompt: prompt,
-            action: startBreath
+            action: takeBreak
         )
     }
 
-    /// User tapped Break? — enter breath phase with timer at 0.
-    private func startBreath() {
-        enterBreath(startedAt: Date())
-    }
-
-    private func enterBreath(startedAt: Date) {
+    /// User tapped the break button. There's no inline timer any more — the
+    /// break pill under the menu bar is the whole break surface, so close the
+    /// prompt and let it take over.
+    private func takeBreak() {
         cancelIdleTimer()
-        breathStartedAt = startedAt
-        breathNow = Date()
-        inBreath = true
         onBreakStart()
-        breathTicker?.cancel()
-        breathTicker = Task { @MainActor in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
-                if Task.isCancelled { break }
-                breathNow = Date()
-            }
-        }
+        onDismiss()
     }
 
     private func startIdleTimer() {
         idleTask?.cancel()
         switch phase {
-        case .breath:
-            return
         case .confirm:
             // User is working. Don't auto-break — just close the popup after
             // a long grace period. Next check-in (10–15m) will reopen it.
@@ -560,74 +493,3 @@ private struct PromptContentView: View {
 /// the right. Same shape as the confirm view's current-task pill for
 /// visual consistency. Used by the inline breath phase of the work prompt
 /// and the standalone breath reminder once started.
-private struct BreathTimer: View {
-    let elapsed: TimeInterval
-    let onDone: () -> Void
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Text(elapsed.hms)
-                .font(.title3.weight(.semibold).monospacedDigit())
-            Spacer()
-            Button(action: onDone) {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(Color.green)
-            }
-            .buttonStyle(.plain)
-            .keyboardShortcut(.defaultAction)
-        }
-        .padding(.vertical, 12)
-        .padding(.horizontal, 14)
-        .background(Color.blue.opacity(0.18))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-    }
-}
-
-/// The standalone running-break panel: just the "On break" counter and Done.
-/// Shown for auto-started breaks (waking from a short sleep, the menu's quick
-/// break). The decision-time break flow (take a break / keep working / switch)
-/// now lives inside the work check-in (`PromptContentView`).
-private struct BreathContentView: View {
-    /// When the break started — elapsed counts up from here. A past date
-    /// pre-rolls elapsed (e.g. backdated to when the Mac went to sleep).
-    let startAt: Date
-    let onDone: () -> Void
-    let onStart: () -> Void
-    let onSizeChange: (CGSize) -> Void
-
-    @State private var now: Date = Date()
-    @State private var ticker: Task<Void, Never>?
-    @State private var started = false
-
-    private var elapsed: TimeInterval { max(0, now.timeIntervalSince(startAt)) }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Image(systemName: "wind").foregroundStyle(.blue)
-                Text("On break").font(.headline)
-                Spacer()
-            }
-            .background(WindowDragArea())
-
-            BreathTimer(elapsed: elapsed, onDone: onDone)
-        }
-        .panelContainer(width: 260, onSizeChange: onSizeChange)
-        .onAppear {
-            now = Date()
-            guard !started else { return }
-            started = true
-            onStart()
-            ticker?.cancel()
-            ticker = Task { @MainActor in
-                while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(1))
-                    if Task.isCancelled { break }
-                    now = Date()
-                }
-            }
-        }
-        .onDisappear { ticker?.cancel() }
-    }
-}

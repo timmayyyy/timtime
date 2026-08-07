@@ -186,11 +186,10 @@ final class Tracker: ObservableObject {
         guard duration >= sleepBreakThreshold else { return }
 
         if duration < longSleepThreshold {
-            // Short sleep → show the breath panel with elapsed pre-rolled so
-            // it reads "you've been on break for Xm". The user can click Done to
-            // resume — or, since this break was started automatically, just
-            // start typing and the idle watchdog ends it and asks what's next.
-            nudger.showBreath(autoStartAt: start, autoStarted: true)
+            // Short sleep → assume a break; the pill shows it. Since this break
+            // was started automatically, just start typing and the idle watchdog
+            // ends it and asks what's next.
+            nudger.startBreak(autoStarted: true)
         } else {
             // Long sleep → fresh start. Open the menu popover with welcome-back.
             onWakePrompt?()
@@ -446,10 +445,15 @@ final class Tracker: ObservableObject {
     /// True once the user has gone `standUpThreshold` without a real break.
     var isBreakOverdue: Bool { (timeSinceLastBreak ?? 0) >= Self.standUpThreshold }
 
-    /// Quick-break flow — opens the breath panel pre-started so the user goes
-    /// straight to the timer + Done.
+    /// Quick-break flow — stops the clock and hands the screen to the break pill.
     func takeQuickBreak() {
-        nudger.showBreath(autoStartAt: Date())
+        nudger.startBreak()
+    }
+
+    /// The break pill was clicked — end any assumed break and open the work
+    /// picker so the user can say what they're starting.
+    func pickTaskFromBreakPill() {
+        nudger.pickTaskFromPill()
     }
 
     /// (done, total) breath-reminder responses on the given day.
