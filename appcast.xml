@@ -8,6 +8,27 @@
     <description>Updates for TimTime — a minimalist macOS menu bar time tracker.</description>
     <language>en</language>
     <item>
+      <title>Version 1.2.0</title>
+      <pubDate>Fri, 07 Aug 2026 17:52:16 +0000</pubDate>
+      <sparkle:version>12</sparkle:version>
+      <sparkle:shortVersionString>1.2.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+        <h3>TimTime 1.2.0</h3>
+        <ul>
+          <li><strong>New — a break pill.</strong> A small capsule sits under the menu bar, top-right, whenever nothing is being tracked. Click it to pick what you're working on.</li>
+          <li>It shows up for every way tracking can stop — you took a break, a check-in went unanswered, the idle watchdog stopped you, or your Mac woke from sleep. Not noticing is how a forgotten task quietly eats an afternoon.</li>
+          <li><strong>The break timer is gone.</strong> Taking a break no longer opens a panel with a clock counting upward; it just stops the clock and shows the pill.</li>
+          <li>Long task names are clipped to 10 characters in the menu bar, so "Champions for Veterans" reads "Champions…". The full name is always in the panel.</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/timmayyyy/timtime/releases/download/v1.2.0/TimTime.dmg"
+        sparkle:edSignature="1BeUVVX5I+DK0CJTwI+kyUN/PmBTixuF0P0kIGM8r0sck20v+EQFeWkBzavILUVU/LIrVij+2d/bSJ38dihmCg=="
+        length="1726596"
+        type="application/octet-stream" />
+    </item>
+    <item>
       <title>Version 1.1.1</title>
       <pubDate>Fri, 07 Aug 2026 10:23:59 +0000</pubDate>
       <sparkle:version>11</sparkle:version>
