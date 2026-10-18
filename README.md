@@ -6,9 +6,9 @@ Type what you're working on. TimTime does the rest. It lives in your Mac's menu 
 
 ![TimTime in the menu bar: a live timer, a focus score, a color-coded timeline of the day, and today's tasks](screenshots/today.png)
 
-## Download
+## Get it
 
-**[⬇ Download TimTime](https://github.com/timmayyyy/timtime/releases/latest/download/TimTime.dmg)** (free, macOS 14 Sonoma or later)
+**[Buy TimTime for €9](https://www.ai-ascend.com/timtime)**. One payment, no subscription, free 1.x updates. macOS 14 Sonoma or later.
 
 Open the DMG and drag **TimTime** to Applications. It lives in your menu bar (no Dock icon) and keeps itself up to date.
 
@@ -53,11 +53,11 @@ The screenshots use made-up data. See [Regenerating screenshots](#regenerating-s
 - **Entries are append-only.** Renaming or merging a label rewrites its name. It never deletes your time.
 - **Updates itself** with [Sparkle](https://sparkle-project.org). Signed and notarized.
 
-## Tell me what's missing
+## Help me make it better
 
 I'm using it every day and I'd like to know what breaks for you. [Open an issue](https://github.com/timmayyyy/timtime/issues) or email tim@ai-ascend.com.
 
-More at [ai-ascend.com/timtime](https://www.ai-ascend.com/timtime).
+The source is right here. If you really want it for free, [build it yourself](#build-from-source). No hard feelings.
 
 ## Build from source
 
