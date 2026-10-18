@@ -57,8 +57,6 @@ The screenshots use made-up data. See [Regenerating screenshots](#regenerating-s
 
 I'm using it every day and I'd like to know what breaks for you. [Open an issue](https://github.com/timmayyyy/timtime/issues) or email tim@ai-ascend.com.
 
-The source is right here. If you really want it for free, [build it yourself](#build-from-source). No hard feelings.
-
 ## Build from source
 
 Requires macOS 14+ and Xcode 26 (Sparkle is pulled in via Swift Package Manager automatically).
