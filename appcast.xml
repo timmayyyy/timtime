@@ -1,0 +1,211 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"
+     xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"
+     xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>Ascend Time</title>
+    <link>https://timmayyyy.github.io/timtime/appcast.xml</link>
+    <description>Updates for Ascend Time — a minimalist macOS menu bar time tracker.</description>
+    <language>en</language>
+    <item>
+      <title>Version 1.3.0</title>
+      <pubDate>Mon, 23 Nov 2026 21:53:25 +0000</pubDate>
+      <sparkle:version>13</sparkle:version>
+      <sparkle:shortVersionString>1.3.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+        <h3>Ascend Time 1.3.0</h3>
+        <ul>
+          <li><strong>TimTime is now Ascend Time.</strong> Same app, new name.</li>
+          <li>Your data comes with you. The first time you open it, your time entries move to a folder named Ascend Time. The old folder stays as a link, so nothing is lost.</li>
+          <li>The app renames itself from "Tim Time" to "Ascend Time" in your Applications folder and reopens once.</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/timmayyyy/ascend-time/releases/download/v1.3.0/AscendTime.dmg"
+        sparkle:edSignature="BvliiQaMtNmSEMfE1PBDH6HM+AtRAAnrfq5CtRiz+3Ffuv00BAOXixH/vBKsdq/lh9aqzjE3BXD8QsYBpIrrAA=="
+        length="1729833"
+        type="application/octet-stream" />
+    </item>
+    <item>
+      <title>Version 1.2.0</title>
+      <pubDate>Fri, 07 Aug 2026 17:52:16 +0000</pubDate>
+      <sparkle:version>12</sparkle:version>
+      <sparkle:shortVersionString>1.2.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+        <h3>TimTime 1.2.0</h3>
+        <ul>
+          <li><strong>New — a break pill.</strong> A small capsule sits under the menu bar, top-right, whenever nothing is being tracked. Click it to pick what you're working on.</li>
+          <li>It shows up for every way tracking can stop — you took a break, a check-in went unanswered, the idle watchdog stopped you, or your Mac woke from sleep. Not noticing is how a forgotten task quietly eats an afternoon.</li>
+          <li><strong>The break timer is gone.</strong> Taking a break no longer opens a panel with a clock counting upward; it just stops the clock and shows the pill.</li>
+          <li>Long task names are clipped to 10 characters in the menu bar, so "Champions for Veterans" reads "Champions…". The full name is always in the panel.</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/timmayyyy/ascend-time/releases/download/v1.2.0/TimTime.dmg"
+        sparkle:edSignature="1BeUVVX5I+DK0CJTwI+kyUN/PmBTixuF0P0kIGM8r0sck20v+EQFeWkBzavILUVU/LIrVij+2d/bSJ38dihmCg=="
+        length="1726596"
+        type="application/octet-stream" />
+    </item>
+    <item>
+      <title>Version 1.1.1</title>
+      <pubDate>Fri, 07 Aug 2026 10:23:59 +0000</pubDate>
+      <sparkle:version>11</sparkle:version>
+      <sparkle:shortVersionString>1.1.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+        <h3>TimTime 1.1.1</h3>
+        <ul>
+          <li><strong>Fixed — time you spent asleep is no longer billed as work.</strong> Leaving a task running overnight could keep it counting until morning; one entry billed 6 hours of sleep.</li>
+          <li>TimTime already stops a task after 5 minutes of no keyboard or mouse activity. The exception that keeps it running through quiet meetings trusted "some app is keeping the screen awake" as proof you were there — and browsers hold that for a video in <em>any</em> tab, including a silent, backgrounded one, sometimes for hours.</li>
+          <li>That signal now only vouches for you for 45 minutes past your last real interaction. A live microphone still counts indefinitely, so long meetings are tracked exactly as before and still backdate to when the call ended.</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/timmayyyy/ascend-time/releases/download/v1.1.1/TimTime.dmg"
+        sparkle:edSignature="lZxmxmHMD5dK/9UL0KrjNZxPYcyFPm8xhs8W8E8MRiT8P8N2FtpyYw7C24maBtGx7W8yeQ6kKj5gbO32buOYAg=="
+        length="1740568"
+        type="application/octet-stream" />
+    </item>
+    <item>
+      <title>Version 1.1.0</title>
+      <pubDate>Sat, 18 Jul 2026 12:56:51 +0000</pubDate>
+      <sparkle:version>10</sparkle:version>
+      <sparkle:shortVersionString>1.1.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+        <h3>TimTime 1.1.0</h3>
+        <ul>
+          <li><strong>New — Colors.</strong> Give your labels colors and group your time into categories. Shift-click one or more labels and pick a color; name your colors (e.g. "Personal", "Business").</li>
+          <li><strong>New — By color.</strong> The week and month views show how your time splits across your color categories, with percentages.</li>
+          <li><strong>New — Month view.</strong> A compact day-by-day timeline for the whole month.</li>
+          <li>Timelines and breakdowns are color-coded — hover a label to spotlight its time and dim the rest.</li>
+          <li>Merge several labels at once by shift-selecting them.</li>
+          <li>The menu now caps at 80% of your screen height and scrolls, so long label lists stay usable.</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/timmayyyy/ascend-time/releases/download/v1.1.0/TimTime.dmg"
+        sparkle:edSignature="aB17tk7t7jI734JfOJo8Z6GFHMpMK2DaOYThvfUEuyY/x02jUhZlmBBdMSsW2LpOU1KBBGibHwZQSsuyYTevBw=="
+        length="1740411"
+        type="application/octet-stream" />
+    </item>
+    <item>
+      <title>Version 1.0.5</title>
+      <pubDate>Tue, 30 Jun 2026 04:24:13 +0000</pubDate>
+      <sparkle:version>9</sparkle:version>
+      <sparkle:shortVersionString>1.0.5</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+        <h3>TimTime 1.0.5</h3>
+        <ul>
+          <li><strong>Fixed</strong> a crash that could quit the app when the check-in prompt or menu changed size (notably on macOS 26 Tahoe).</li>
+          <li>The "Take a break" button now looks the same everywhere — quiet by default, and grows into the full reminder once you're overdue, whether you open it from the menu or a check-in.</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/timmayyyy/ascend-time/releases/download/v1.0.5/TimTime.dmg"
+        sparkle:edSignature="BAq9/TGZR8eME4mo6Fe3rkf8y7P7Y958Prvdd6S9jExV8khcNzxidImyVSEIzqrPzpJCl+wAirLCCclfBX9SDQ=="
+        length="1634640"
+        type="application/octet-stream" />
+    </item>
+    <item>
+      <title>Version 1.0.4</title>
+      <pubDate>Wed, 24 Jun 2026 14:25:43 +0000</pubDate>
+      <sparkle:version>8</sparkle:version>
+      <sparkle:shortVersionString>1.0.4</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+        <h3>TimTime 1.0.4</h3>
+        <ul>
+          <li><strong>Fixed</strong> a crash that could still quit the app during check-in prompts — 1.0.3 addressed only part of the cause; this resolves the rest.</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/timmayyyy/ascend-time/releases/download/v1.0.4/TimTime.dmg"
+        sparkle:edSignature="TiDgmLrNvRVRsy55J0Rh92j/n5VnPvGhWumqqyFH66SY4j0q5HQFz30seyoGFUz9m4Y8jJz0nnM6R/gflmG5AQ=="
+        length="1634552"
+        type="application/octet-stream" />
+    </item>
+    <item>
+      <title>Version 1.0.3</title>
+      <pubDate>Wed, 24 Jun 2026 09:29:48 +0000</pubDate>
+      <sparkle:version>7</sparkle:version>
+      <sparkle:shortVersionString>1.0.3</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+        <h3>TimTime 1.0.3</h3>
+        <ul>
+          <li><strong>Fixed</strong> a crash that could quit the app unexpectedly during check-in prompts.</li>
+          <li>Stand-up reminders now repeat every 15 minutes once you're overdue for a break, instead of nudging just once.</li>
+          <li>The break prompt is now part of the same check-in — one interface, with a big "time since last break" and varied encouragement to step away.</li>
+          <li>New: a "Take a break" button pinned at the bottom of the menu, always in the same place.</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/timmayyyy/ascend-time/releases/download/v1.0.3/TimTime.dmg"
+        sparkle:edSignature="lGVOva/B/1WcZa/i9ovRkLDKy1VtfnyJLOEdc4srAflk9KMGL863inSJ9gtx1//Cf/MVrfdYkQPIRFHCukdkDw=="
+        length="1631827"
+        type="application/octet-stream" />
+    </item>
+    <item>
+      <title>Version 1.0.2</title>
+      <pubDate>Sun, 21 Jun 2026 17:02:21 +0000</pubDate>
+      <sparkle:version>6</sparkle:version>
+      <sparkle:shortVersionString>1.0.2</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+        <h3>TimTime 1.0.2</h3>
+        <ul>
+          <li>Fixed: no longer quietly switches itself to a break when a check-in goes unanswered.</li>
+          <li>A break that started on its own (e.g. after your Mac sleeps) now ends and asks what you're working on as soon as you're back at the keyboard.</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/timmayyyy/ascend-time/releases/download/v1.0.2/TimTime.dmg"
+        sparkle:edSignature="a+N6IJvqQUaUmlSCeOkSrIq8NzKVcfmbDUDxGgbZ3oQ8GPla7c/ga+gJz6HaT0HDZhlCDufpJVENxFPPTr9gCQ=="
+        length="1650420"
+        type="application/octet-stream" />
+    </item>
+    <item>
+      <title>Version 1.0.1</title>
+      <pubDate>Sun, 07 Jun 2026 09:23:12 +0000</pubDate>
+      <sparkle:version>5</sparkle:version>
+      <sparkle:shortVersionString>1.0.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+        <h3>TimTime 1.0.1</h3>
+        <ul>
+          <li>New: <strong>About TimTime</strong> panel and a "Last checked" update line.</li>
+          <li>Refined break prompt — one tap to take a break or keep your current task.</li>
+          <li>Fixes the in-app update check (feed URL).</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/timmayyyy/ascend-time/releases/download/v1.0.1/TimTime.dmg"
+        sparkle:edSignature="d56TNSb3R3XUOVUZ+01PB11tTYrGen7U3N676x1cC1svPdE0tatHM8LVnC7cvxpF4K/oX3/N+wEgZxC2FNtzAA=="
+        length="1634740"
+        type="application/octet-stream" />
+    </item>
+    <item>
+      <title>Version 1.0.0</title>
+      <pubDate>Sun, 07 Jun 2026 08:02:25 +0000</pubDate>
+      <sparkle:version>4</sparkle:version>
+      <sparkle:shortVersionString>1.0.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+        <h3>TimTime 1.0.0</h3>
+        <ul>
+          <li>First public release — minimalist menu bar time tracking.</li>
+          <li>Switch-to-start labels, daily/weekly breakdown, gentle work/break nudges.</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://github.com/timmayyyy/ascend-time/releases/download/v1.0.0/TimTime.dmg"
+        sparkle:edSignature="Z84/n/+kM0bOxnPePkAXMzzM/1pIc8obH1F1KzzZEhlCmhsxo0GBNM0DMT5/7VEf7eXQrSUNPrK6n/fNzz8QCw=="
+        length="1623668"
+        type="application/octet-stream" />
+    </item>
+  </channel>
+</rss>
